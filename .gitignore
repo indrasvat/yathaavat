@@ -1,0 +1,28 @@
+.DS_Store
+.idea/
+.vscode/
+
+# Python / uv
+.venv/
+__pycache__/
+*.py[cod]
+*.pyo
+*.pyd
+.pytest_cache/
+.ruff_cache/
+.mypy_cache/
+.coverage
+coverage.xml
+htmlcov/
+
+# Build artifacts
+dist/
+build/
+*.egg-info/
+
+# Logs / bundles
+*.log
+*.zip
+
+# Local automations artifacts
+.claude/artifacts/

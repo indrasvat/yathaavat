@@ -1,0 +1,278 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8"/>
+<meta name="viewport" content="width=device-width, initial-scale=1"/>
+<title>yathaavat TUI Mocks</title>
+<style>
+:root {
+  --bg:#0b0f14;
+  --panel:#101823;
+  --panel2:#0f1520;
+  --text:#d6e2ff;
+  --muted:#93a4c7;
+  --accent:#8bd5ff;
+  --good:#7CFFB2;
+  --warn:#FFD37C;
+  --bad:#FF7C9B;
+  --border:rgba(255,255,255,.08);
+  --shadow:rgba(0,0,0,.35);
+  --mono: ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, "Liberation Mono", "Courier New", monospace;
+}
+
+body {
+  margin:0; background:var(--bg); color:var(--text); font-family:var(--mono);
+}
+.header {
+  padding:16px 18px; border-bottom:1px solid var(--border);
+  position:sticky; top:0; background:linear-gradient(180deg, rgba(16,24,35,.95), rgba(11,15,20,.85));
+  backdrop-filter: blur(8px);
+}
+h1 { margin:0; font-size:18px; letter-spacing:.2px; }
+p  { margin:8px 0 0; color:var(--muted); font-size:12px; max-width:1100px; }
+
+.wrap {
+  padding:18px;
+  display:grid;
+  gap:18px;
+}
+
+.mock {
+  border:1px solid var(--border);
+  background:linear-gradient(180deg, rgba(16,24,35,.9), rgba(15,21,32,.9));
+  box-shadow: 0 20px 60px var(--shadow);
+  border-radius:14px;
+  overflow:hidden;
+}
+
+.topbar {
+  display:flex; align-items:center; justify-content:space-between;
+  padding:10px 12px; border-bottom:1px solid var(--border);
+  background:rgba(0,0,0,.15);
+  font-size:12px;
+}
+.pills { display:flex; gap:8px; flex-wrap:wrap; align-items:center; }
+.pill {
+  padding:2px 8px; border:1px solid var(--border); border-radius:999px;
+  color:var(--muted);
+}
+.pill strong { color:var(--text); font-weight:600; }
+.state-paused { border-color: rgba(139,213,255,.35); color:var(--accent); }
+.state-run { border-color: rgba(124,255,178,.35); color:var(--good); }
+
+.grid {
+  display:grid;
+  grid-template-columns: 260px 1fr 340px;
+  grid-template-rows: 1fr 200px;
+  height: 620px;
+}
+
+.pane {
+  border-right:1px solid var(--border);
+  border-bottom:1px solid var(--border);
+  padding:10px 10px;
+  overflow:hidden;
+}
+.pane:last-child { border-right:none; }
+
+.pane h2 {
+  margin:0 0 8px 0; font-size:12px; color:var(--muted); font-weight:600;
+  display:flex; justify-content:space-between; align-items:center;
+}
+.kbd { color:var(--muted); border:1px solid var(--border); padding:1px 6px; border-radius:6px; font-size:11px; }
+
+.list {
+  font-size:12px; line-height:1.45;
+  color:var(--text);
+}
+.item {
+  display:flex; justify-content:space-between; gap:10px;
+  padding:5px 6px; border-radius:8px;
+}
+.item.sel { background:rgba(139,213,255,.10); outline:1px solid rgba(139,213,255,.18); }
+.item .path { color:var(--muted); }
+.badge {
+  font-size:11px; padding:1px 6px; border-radius:999px; border:1px solid var(--border);
+  color:var(--muted);
+}
+.badge.bad { color:var(--bad); border-color: rgba(255,124,155,.35); }
+.badge.good { color:var(--good); border-color: rgba(124,255,178,.35); }
+
+.code {
+  font-size:12px; line-height:1.55;
+  white-space:pre; overflow:auto; height:100%;
+  padding:6px 8px; border-radius:10px;
+  background:rgba(0,0,0,.18);
+}
+.hl { background:rgba(255,211,124,.12); border-left:3px solid var(--warn); padding-left:6px; }
+.inlineval { color:var(--accent); }
+.comment { color:rgba(147,164,199,.65); }
+
+.bottom {
+  grid-column: 1 / span 3;
+  display:grid;
+  grid-template-columns: 1fr 1fr;
+}
+.console {
+  border-right:1px solid var(--border);
+  padding:10px;
+}
+.console:last-child { border-right:none; }
+
+.input {
+  margin-top:8px;
+  padding:8px 10px;
+  border:1px solid var(--border);
+  border-radius:10px;
+  background:rgba(0,0,0,.20);
+  color:var(--muted);
+  font-size:12px;
+}
+
+.callout {
+  margin:18px 0 0;
+  padding:12px 14px;
+  border:1px solid rgba(139,213,255,.25);
+  border-radius:12px;
+  background:rgba(139,213,255,.06);
+  color:var(--muted);
+  font-size:12px;
+}
+</style>
+</head>
+<body>
+  <div class="header">
+    <h1>yathaavat — TUI HTML Mocks</h1>
+    <p>These mocks model the intended panel layout, density, and hierarchy for a terminal debugger UI. Sanskrit tags are shown as light, optional badges (middle ground).</p>
+  </div>
+
+  <div class="wrap">
+
+    <div class="mock">
+      <div class="topbar">
+        <div class="pills">
+          <span class="pill"><strong>yathaavat</strong> • workspace: <strong>~/work/myapp</strong></span>
+          <span class="pill state-paused"><strong>PAUSED</strong> (viraam)</span>
+          <span class="pill">PID <strong>1234</strong></span>
+          <span class="pill">Python <strong>3.14.2</strong></span>
+          <span class="pill">Adapter <strong>debugpy (DAP)</strong></span>
+        </div>
+        <div class="pills">
+          <span class="pill">F5 continue <span class="kbd">anuvartan</span></span>
+          <span class="pill">F10 next <span class="kbd">atikram</span></span>
+          <span class="pill">F11 step <span class="kbd">pravesh</span></span>
+          <span class="pill"><span class="kbd">Ctrl+P</span> palette</span>
+        </div>
+      </div>
+
+      <div class="grid">
+        <div class="pane">
+          <h2>Files <span class="kbd">Ctrl+K</span></h2>
+          <div class="list">
+            <div class="item sel"><span>app/service.py</span><span class="badge good">open</span></div>
+            <div class="item"><span>app/routes.py</span><span class="badge">—</span></div>
+            <div class="item"><span>app/db.py</span><span class="badge">—</span></div>
+            <div class="item"><span>app/async_tasks.py</span><span class="badge">—</span></div>
+          </div>
+
+          <div class="callout">
+            <div><strong>Hint:</strong> Press <span class="kbd">b</span> to toggle a breakpoint <span class="kbd">bindu</span>.</div>
+          </div>
+        </div>
+
+        <div class="pane">
+          <h2>Source <span class="kbd">Ctrl+J</span></h2>
+          <div class="code">
+<span class="comment"># app/service.py</span>
+def compute_total(order):
+    subtotal = sum(item.price for item in order.items)  <span class="inlineval"># → 129.95</span>
+    tax = subtotal * order.tax_rate                     <span class="inlineval"># → 10.40</span>
+    discount = order.coupon.discount(subtotal)          <span class="inlineval"># → 0.00</span>
+    total = subtotal + tax - discount                   <span class="inlineval"># → 140.35</span>
+    return total
+
+def checkout(order):
+    validate(order)
+    <span class="hl">total = compute_total(order)</span>                 <span class="inlineval"># total → 140.35</span>
+    charge(order.user, total)
+    persist(order, total)
+          </div>
+        </div>
+
+        <div class="pane">
+          <h2>Variables <span class="kbd">Ctrl+W</span></h2>
+          <div class="list">
+            <div class="item sel"><span><strong>order</strong> <span class="path">Order(id=8812)</span></span><span class="badge">▶</span></div>
+            <div class="item"><span>subtotal <span class="path">float</span></span><span>129.95</span></div>
+            <div class="item"><span>tax <span class="path">float</span></span><span>10.40</span></div>
+            <div class="item"><span>discount <span class="path">float</span></span><span>0.00</span></div>
+            <div class="item"><span><strong>total</strong> <span class="path">float</span></span><span class="badge good">140.35</span></div>
+          </div>
+
+          <div class="callout">
+            <div><strong>Tip:</strong> Press <span class="kbd">Enter</span> to expand; <span class="kbd">y</span> to copy.</div>
+          </div>
+        </div>
+
+        <div class="pane bottom">
+          <div class="console">
+            <h2>Debug Console <span class="kbd">moolyaankan</span></h2>
+            <div class="code">
+&gt;&gt;&gt; order.user.email
+'indra@example.com'
+&gt;&gt;&gt; total
+140.35
+            </div>
+            <div class="input">Evaluate in frame: <strong>checkout()</strong> • type expression…</div>
+          </div>
+          <div class="console">
+            <h2>Transcript <span class="kbd">vrittaant</span></h2>
+            <div class="code">
+21:11:03  Session started: run python -m myapp
+21:11:07  Breakpoint hit: app/service.py:12
+21:11:08  Watch updated: total → 140.35
+21:11:09  User eval: order.user.email
+            </div>
+            <div class="input">Export: transcript.md / transcript.jsonl</div>
+          </div>
+        </div>
+
+      </div>
+    </div>
+
+    <div class="mock">
+      <div class="topbar">
+        <div class="pills">
+          <span class="pill"><strong>Async Tasks</strong> <span class="kbd">kaarya</span></span>
+          <span class="pill state-run"><strong>RUNNING</strong></span>
+          <span class="pill">hang suspect: awaiting <strong>db.acquire()</strong></span>
+        </div>
+        <div class="pills">
+          <span class="pill"><span class="kbd">Ctrl+A</span> tasks</span>
+          <span class="pill"><span class="kbd">/</span> search</span>
+        </div>
+      </div>
+      <div style="padding:12px 12px 18px;">
+        <div class="code" style="height:420px;">
+TaskTree (pstree-style)
+└─ main_task: serve_forever()
+   ├─ http: handle_request(id=9b21)        <span class="inlineval">RUNNABLE</span>
+   ├─ http: handle_request(id=c0ad)        <span class="inlineval">AWAIT</span> → read_body()
+   └─ job: sync_orders()                   <span class="inlineval">AWAIT</span> → db.acquire()
+      ├─ pool: wait_for_connection()       <span class="inlineval">AWAIT</span>
+      └─ retry: backoff_sleep(2.0s)        <span class="inlineval">SLEEP</span>
+
+Selected: job: sync_orders()
+  coroutine stack:
+    app/jobs.py:88  sync_orders
+    app/db.py:41    acquire
+        </div>
+        <div class="callout">
+          yathaavat surfaces async task state in a debugger-friendly way: list, tree, and “jump to await point”.
+        </div>
+      </div>
+    </div>
+
+  </div>
+</body>
+</html>

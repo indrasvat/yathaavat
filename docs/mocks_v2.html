@@ -1,0 +1,1001 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8"/>
+  <meta name="viewport" content="width=device-width, initial-scale=1"/>
+  <title>yathaavat — TUI HTML Mocks v2</title>
+  <style>
+    :root{
+      --bg0:#070a0f;
+      --bg1:#0b0f14;
+      --panel0:#0e1521;
+      --panel1:#111a28;
+      --panel2:#0c1220;
+      --text:#d6e2ff;
+      --muted:#93a4c7;
+      --faint:rgba(147,164,199,.62);
+      --accent:#8bd5ff;
+      --accent2:#b18cff;
+      --good:#7CFFB2;
+      --warn:#FFD37C;
+      --bad:#FF7C9B;
+      --info:#73b9ff;
+      --border:rgba(255,255,255,.08);
+      --border2:rgba(139,213,255,.18);
+      --shadow:rgba(0,0,0,.40);
+      --shadow2:rgba(0,0,0,.55);
+      --mono: ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, "Liberation Mono", "Courier New", monospace;
+      --r:14px;
+      --r2:12px;
+      --r3:10px;
+    }
+
+    *{ box-sizing:border-box; }
+    html,body{ height:100%; }
+    body{
+      margin:0;
+      color:var(--text);
+      font-family:var(--mono);
+      background:
+        radial-gradient(1200px 900px at 30% -10%, rgba(139,213,255,.10), transparent 55%),
+        radial-gradient(900px 700px at 95% 0%, rgba(177,140,255,.09), transparent 55%),
+        linear-gradient(180deg, var(--bg0), var(--bg1));
+    }
+
+    .muted{ color:var(--muted); }
+    .dim{ color:rgba(147,164,199,.78); }
+    .good{ color:var(--good); font-weight:650; }
+    .warn{ color:var(--warn); font-weight:650; }
+    .bad{ color:var(--bad); font-weight:650; }
+    .info{ color:var(--accent); font-weight:650; }
+
+    .header{
+      padding:16px 18px;
+      border-bottom:1px solid var(--border);
+      position:sticky; top:0;
+      background:linear-gradient(180deg, rgba(16,24,35,.94), rgba(11,15,20,.84));
+      backdrop-filter: blur(10px);
+      z-index:5;
+    }
+    .header h1{ margin:0; font-size:18px; letter-spacing:.2px; }
+    .header p{ margin:8px 0 0; font-size:12px; color:var(--muted); max-width:1100px; }
+
+    .wrap{
+      padding:18px;
+      display:grid;
+      gap:18px;
+      max-width: 1260px;
+      margin: 0 auto;
+    }
+
+    .mock{
+      border:1px solid var(--border);
+      border-radius:var(--r);
+      overflow:hidden;
+      box-shadow: 0 22px 70px var(--shadow);
+      background:linear-gradient(180deg, rgba(16,24,35,.88), rgba(12,16,24,.86));
+      position:relative;
+    }
+
+    .topbar{
+      display:flex;
+      align-items:center;
+      justify-content:space-between;
+      gap:12px;
+      padding:10px 12px;
+      border-bottom:1px solid var(--border);
+      background:
+        linear-gradient(180deg, rgba(0,0,0,.22), rgba(0,0,0,.10));
+      font-size:12px;
+    }
+    .pills{ display:flex; gap:8px; flex-wrap:wrap; align-items:center; }
+    .pill{
+      padding:2px 9px;
+      border:1px solid var(--border);
+      border-radius:999px;
+      color:var(--muted);
+      background:rgba(0,0,0,.12);
+      box-shadow: inset 0 1px 0 rgba(255,255,255,.04);
+      white-space:nowrap;
+    }
+    .pill strong{ color:var(--text); font-weight:650; }
+    .pill .dim{ color:rgba(147,164,199,.75); }
+    .state-paused{ border-color: rgba(139,213,255,.35); color:var(--accent); background:rgba(139,213,255,.06); }
+    .state-run{ border-color: rgba(124,255,178,.35); color:var(--good); background:rgba(124,255,178,.05); }
+    .state-disc{ border-color: rgba(255,124,155,.35); color:var(--bad); background:rgba(255,124,155,.05); }
+
+    .kbd{
+      display:inline-flex;
+      align-items:center;
+      gap:6px;
+      padding:1px 7px;
+      border:1px solid var(--border);
+      border-radius:8px;
+      font-size:11px;
+      color:var(--muted);
+      background:rgba(0,0,0,.15);
+      box-shadow: inset 0 1px 0 rgba(255,255,255,.05);
+    }
+    .kbd .sa{ color:rgba(147,164,199,.72); font-weight:600; }
+
+    .grid{
+      display:grid;
+      grid-template-columns: 280px 1fr 360px;
+      grid-template-rows: 1fr 220px;
+      height: 660px;
+    }
+    .pane{
+      border-right:1px solid var(--border);
+      border-bottom:1px solid var(--border);
+      padding:10px 10px;
+      overflow:hidden;
+      background:linear-gradient(180deg, rgba(0,0,0,.10), rgba(0,0,0,.02));
+      position:relative;
+    }
+    .pane:last-child{ border-right:none; }
+
+    .panehead{
+      display:flex;
+      align-items:center;
+      justify-content:space-between;
+      gap:10px;
+      margin:0 0 8px 0;
+      font-size:12px;
+      color:var(--muted);
+      font-weight:650;
+    }
+    .panehead .title{
+      display:flex; align-items:center; gap:8px;
+      min-width:0;
+    }
+    .panehead .title strong{ color:var(--text); }
+    .tabs{ display:flex; gap:6px; flex-wrap:wrap; justify-content:flex-end; }
+    .tab{
+      font-size:11px;
+      padding:1px 7px;
+      border:1px solid var(--border);
+      border-radius:999px;
+      color:rgba(147,164,199,.78);
+      background:rgba(0,0,0,.10);
+    }
+    .tab.sel{
+      color:var(--text);
+      border-color: rgba(139,213,255,.25);
+      background:rgba(139,213,255,.07);
+    }
+
+    .focusring{
+      outline:1px solid rgba(139,213,255,.22);
+      box-shadow: 0 0 0 3px rgba(139,213,255,.06);
+      border-radius:10px;
+      padding:8px 8px 10px 8px;
+      background:linear-gradient(180deg, rgba(139,213,255,.06), rgba(0,0,0,.10));
+    }
+
+    .list{
+      font-size:12px;
+      line-height:1.35;
+      color:var(--text);
+    }
+    .row{
+      display:grid;
+      grid-template-columns: 1fr auto;
+      gap:10px;
+      padding:5px 6px;
+      border-radius:10px;
+      align-items:center;
+    }
+    .row.sel{ background:rgba(139,213,255,.10); outline:1px solid rgba(139,213,255,.18); }
+    .row.warn{ background:rgba(255,211,124,.08); outline:1px solid rgba(255,211,124,.16); }
+    .row.bad{ background:rgba(255,124,155,.08); outline:1px solid rgba(255,124,155,.18); }
+    .row .meta2{ color:var(--muted); }
+    .row .rhs{ display:flex; gap:8px; align-items:center; }
+
+    .badge{
+      font-size:11px;
+      padding:1px 7px;
+      border-radius:999px;
+      border:1px solid var(--border);
+      color:rgba(147,164,199,.80);
+      background:rgba(0,0,0,.10);
+      white-space:nowrap;
+    }
+    .badge.good{ color:var(--good); border-color: rgba(124,255,178,.28); background:rgba(124,255,178,.05); }
+    .badge.warn{ color:var(--warn); border-color: rgba(255,211,124,.28); background:rgba(255,211,124,.05); }
+    .badge.bad{ color:var(--bad); border-color: rgba(255,124,155,.28); background:rgba(255,124,155,.05); }
+    .badge.info{ color:var(--accent); border-color: rgba(139,213,255,.28); background:rgba(139,213,255,.05); }
+
+    .callout{
+      margin-top:10px;
+      padding:9px 10px;
+      border:1px solid rgba(139,213,255,.22);
+      border-radius:12px;
+      background:rgba(139,213,255,.05);
+      color:rgba(147,164,199,.90);
+      font-size:12px;
+    }
+    .callout .muted{ color:rgba(147,164,199,.78); }
+
+    .codewrap{ height:100%; }
+    .code{
+      height:100%;
+      border-radius:12px;
+      background:rgba(0,0,0,.18);
+      border:1px solid rgba(255,255,255,.06);
+      overflow:auto;
+      padding:8px;
+      box-shadow: inset 0 1px 0 rgba(255,255,255,.04);
+    }
+    .codeline{
+      display:grid;
+      grid-template-columns: 44px 1fr;
+      gap:10px;
+      font-size:12px;
+      line-height:1.45;
+      white-space:pre;
+    }
+    .ln{
+      color:rgba(147,164,199,.58);
+      text-align:right;
+      user-select:none;
+    }
+    .src{ color:var(--text); }
+    .src .comment{ color:rgba(147,164,199,.62); }
+    .src .inline{ color:var(--accent); }
+    .codeline.exec{
+      background:rgba(255,211,124,.10);
+      border-left:3px solid rgba(255,211,124,.65);
+      padding-left:6px;
+      border-radius:10px;
+    }
+    .codeline.bp .ln::after{
+      content:" ●";
+      color:rgba(255,124,155,.85);
+      font-size:10px;
+      position:relative;
+      top:-1px;
+      margin-left:6px;
+    }
+
+    .bottom{
+      grid-column: 1 / span 3;
+      display:grid;
+      grid-template-columns: 1fr 1fr;
+    }
+    .console{
+      border-right:1px solid var(--border);
+      padding:10px;
+      overflow:hidden;
+      background:linear-gradient(180deg, rgba(0,0,0,.10), rgba(0,0,0,.04));
+    }
+    .console:last-child{ border-right:none; }
+    .console .panehead{ margin-bottom:8px; }
+    .term{
+      height: 160px;
+      border-radius:12px;
+      background:rgba(0,0,0,.18);
+      border:1px solid rgba(255,255,255,.06);
+      padding:8px;
+      overflow:auto;
+      font-size:12px;
+      line-height:1.45;
+      white-space:pre;
+    }
+    .prompt{ color:rgba(147,164,199,.9); }
+    .input{
+      margin-top:8px;
+      padding:8px 10px;
+      border:1px solid rgba(255,255,255,.08);
+      border-radius:12px;
+      background:rgba(0,0,0,.22);
+      color:rgba(147,164,199,.92);
+      font-size:12px;
+      display:flex;
+      justify-content:space-between;
+      gap:10px;
+      align-items:center;
+    }
+    .input strong{ color:var(--text); }
+
+    .statusline{
+      padding:9px 12px;
+      border-top:1px solid rgba(255,255,255,.08);
+      background:linear-gradient(180deg, rgba(0,0,0,.08), rgba(0,0,0,.18));
+      font-size:12px;
+      color:rgba(147,164,199,.90);
+      display:flex;
+      justify-content:space-between;
+      gap:12px;
+      flex-wrap:wrap;
+    }
+    .statusline .hint{
+      display:flex; gap:8px; align-items:center; flex-wrap:wrap;
+    }
+    .statusline .hint span{ white-space:nowrap; }
+
+    /* Overlays / dialogs */
+    .overlay{
+      position:absolute;
+      inset:0;
+      background:rgba(8,10,14,.55);
+      backdrop-filter: blur(6px);
+      display:flex;
+      align-items:center;
+      justify-content:center;
+      padding:18px;
+      z-index:4;
+    }
+    .dialog{
+      width:min(860px, 92%);
+      border:1px solid rgba(255,255,255,.10);
+      border-radius:16px;
+      background:linear-gradient(180deg, rgba(16,24,35,.96), rgba(10,13,19,.94));
+      box-shadow: 0 30px 90px var(--shadow2);
+      overflow:hidden;
+    }
+    .dialog .dhead{
+      padding:12px 12px;
+      border-bottom:1px solid rgba(255,255,255,.10);
+      display:flex; justify-content:space-between; align-items:center; gap:12px;
+      font-size:12px;
+      color:var(--muted);
+    }
+    .dialog .dhead strong{ color:var(--text); }
+    .dialog .dbody{ padding:12px; }
+    .palette-row{
+      display:grid;
+      grid-template-columns: 1fr auto auto;
+      gap:10px;
+      padding:7px 8px;
+      border-radius:12px;
+      align-items:center;
+      font-size:12px;
+      color:rgba(214,226,255,.94);
+    }
+    .palette-row.sel{
+      background:rgba(139,213,255,.12);
+      outline:1px solid rgba(139,213,255,.20);
+    }
+    .palette-row .id{ color:rgba(147,164,199,.78); }
+    .palette-row .when{ color:rgba(147,164,199,.72); }
+    .subtle{
+      color:rgba(147,164,199,.80);
+      font-size:12px;
+      margin-top:10px;
+      display:flex; justify-content:space-between; gap:10px; flex-wrap:wrap;
+    }
+
+    /* Compact mock */
+    .compact{
+      padding:12px;
+    }
+    .termframe{
+      border:1px solid rgba(255,255,255,.10);
+      border-radius:14px;
+      background:rgba(0,0,0,.16);
+      box-shadow: inset 0 1px 0 rgba(255,255,255,.04);
+      overflow:hidden;
+    }
+    .termhead{
+      padding:8px 10px;
+      border-bottom:1px solid rgba(255,255,255,.08);
+      display:flex; justify-content:space-between; gap:12px; flex-wrap:wrap;
+      font-size:12px;
+      color:rgba(147,164,199,.90);
+    }
+    .termgrid{
+      padding:10px;
+      font-size:12px;
+      line-height:1.35;
+      white-space:pre;
+      font-variant-ligatures:none;
+      color:rgba(214,226,255,.96);
+      background:linear-gradient(180deg, rgba(0,0,0,.08), rgba(0,0,0,.16));
+    }
+    .termgrid .hi{ background:rgba(255,211,124,.10); }
+    .termgrid .f{ background:rgba(139,213,255,.12); }
+    .termgrid .dim{ color:rgba(147,164,199,.78); }
+  </style>
+</head>
+<body>
+  <div class="header">
+    <h1>yathaavat — TUI HTML Mocks (v2)</h1>
+    <p>Polished terminal-first mocks: dense, keyboard-driven, and production-realistic. These screens emphasize focus clarity, breakpoint verification, paging-friendly inspection, transcript-first workflows, and safe attach UX.</p>
+  </div>
+
+  <div class="wrap">
+
+    <!-- Main: paused -->
+    <div class="mock">
+      <div class="topbar">
+        <div class="pills">
+          <span class="pill"><strong>yathaavat</strong> <span class="dim">•</span> workspace <strong>~/work/myapp</strong></span>
+          <span class="pill state-paused"><strong>PAUSED</strong> <span class="dim">(viraam)</span></span>
+          <span class="pill">PID <strong>1234</strong></span>
+          <span class="pill">Python <strong>3.14.2</strong></span>
+          <span class="pill">Backend <strong>debugpy</strong> <span class="dim">(DAP)</span></span>
+          <span class="pill">Thread <strong>Main</strong></span>
+          <span class="pill">Frame <strong>checkout()</strong></span>
+        </div>
+        <div class="pills">
+          <span class="pill"><span class="kbd">F5</span> continue <span class="kbd"><span class="sa">anuvartan</span></span></span>
+          <span class="pill"><span class="kbd">F10</span> next <span class="kbd"><span class="sa">atikram</span></span></span>
+          <span class="pill"><span class="kbd">F11</span> step <span class="kbd"><span class="sa">pravesh</span></span></span>
+          <span class="pill"><span class="kbd">b</span> breakpoint <span class="kbd"><span class="sa">bindu</span></span></span>
+          <span class="pill"><span class="kbd">Ctrl+P</span> palette</span>
+        </div>
+      </div>
+
+      <div class="grid">
+        <div class="pane">
+          <div class="panehead">
+            <div class="title"><strong>Stack</strong> <span class="badge info">paused</span></div>
+            <div class="tabs">
+              <span class="tab sel">Frames</span>
+              <span class="tab">Threads</span>
+              <span class="tab">Bps</span>
+              <span class="kbd">t</span>
+            </div>
+          </div>
+
+          <div class="list">
+            <div class="row sel"><div><strong>&gt;</strong> checkout(order) <span class="meta2">app/service.py:12</span></div><div class="rhs"><span class="badge info">current</span></div></div>
+            <div class="row"><div>compute_total(order) <span class="meta2">app/service.py:2</span></div><div class="rhs"><span class="badge">—</span></div></div>
+            <div class="row"><div>charge(user,total) <span class="meta2">app/payments.py:88</span></div><div class="rhs"><span class="badge">—</span></div></div>
+            <div class="row"><div>persist(order,total) <span class="meta2">app/db.py:41</span></div><div class="rhs"><span class="badge">—</span></div></div>
+          </div>
+
+          <div class="callout">
+            <div><strong>Breakpoint verification:</strong> unverified breakpoints are normal. They’ll bind when the module loads or path mapping is fixed.</div>
+          </div>
+
+          <div style="margin-top:12px">
+            <div class="panehead">
+              <div class="title"><strong>Breakpoints</strong></div>
+              <div class="tabs">
+                <span class="tab sel">All</span>
+                <span class="tab">File</span>
+                <span class="kbd">b</span>
+              </div>
+            </div>
+            <div class="list">
+              <div class="row"><div><span class="badge bad">●</span> app/service.py:12</div><div class="rhs"><span class="badge good">bound</span></div></div>
+              <div class="row warn"><div><span class="badge">○</span> app/routes.py:44 <span class="meta2">cond: user.is_admin</span></div><div class="rhs"><span class="badge warn">pending</span></div></div>
+              <div class="row"><div><span class="badge bad">●</span> app/db.py:41 <span class="meta2">hit: 3</span></div><div class="rhs"><span class="badge info">logpoint</span></div></div>
+            </div>
+          </div>
+        </div>
+
+        <div class="pane">
+          <div class="panehead">
+            <div class="title"><strong>Source</strong> <span class="badge">app/service.py</span></div>
+            <div class="tabs">
+              <span class="tab sel">File</span>
+              <span class="tab">Search</span>
+              <span class="tab">Symbols</span>
+              <span class="kbd">/</span>
+            </div>
+          </div>
+
+          <div class="focusring">
+            <div class="codewrap">
+              <div class="code">
+                <div class="codeline"><span class="ln">1</span><span class="src"><span class="comment"># app/service.py</span></span></div>
+                <div class="codeline"><span class="ln">2</span><span class="src">def compute_total(order):</span></div>
+                <div class="codeline"><span class="ln">3</span><span class="src">    subtotal = sum(item.price for item in order.items)  <span class="inline"># → 129.95</span></span></div>
+                <div class="codeline"><span class="ln">4</span><span class="src">    tax = subtotal * order.tax_rate                     <span class="inline"># → 10.40</span></span></div>
+                <div class="codeline"><span class="ln">5</span><span class="src">    discount = order.coupon.discount(subtotal)          <span class="inline"># → 0.00</span></span></div>
+                <div class="codeline"><span class="ln">6</span><span class="src">    total = subtotal + tax - discount                   <span class="inline"># → 140.35</span></span></div>
+                <div class="codeline"><span class="ln">7</span><span class="src">    return total</span></div>
+                <div class="codeline"><span class="ln">8</span><span class="src"></span></div>
+                <div class="codeline"><span class="ln">9</span><span class="src">def checkout(order):</span></div>
+                <div class="codeline"><span class="ln">10</span><span class="src">    validate(order)</span></div>
+                <div class="codeline bp exec"><span class="ln">12</span><span class="src">    total = compute_total(order)                        <span class="inline"># total → 140.35</span></span></div>
+                <div class="codeline"><span class="ln">13</span><span class="src">    charge(order.user, total)</span></div>
+                <div class="codeline"><span class="ln">14</span><span class="src">    persist(order, total)</span></div>
+              </div>
+            </div>
+          </div>
+
+          <div class="callout">
+            <div><strong>Focus:</strong> Source. <span class="muted">Enter</span> run-to-cursor • <span class="muted">b</span> toggle breakpoint • <span class="muted">y</span> copy selection • <span class="muted">Ctrl+P</span> palette</div>
+          </div>
+        </div>
+
+        <div class="pane">
+          <div class="panehead">
+            <div class="title"><strong>Inspector</strong></div>
+            <div class="tabs">
+              <span class="tab sel">Locals</span>
+              <span class="tab">Watches</span>
+              <span class="tab">Globals</span>
+              <span class="kbd">l</span>
+            </div>
+          </div>
+
+          <div class="list">
+            <div class="row sel"><div><strong>order</strong> <span class="meta2">Order(id=8812)</span></div><div class="rhs"><span class="badge">▸</span></div></div>
+            <div class="row"><div>subtotal <span class="meta2">float</span></div><div class="rhs">129.95</div></div>
+            <div class="row"><div>tax <span class="meta2">float</span></div><div class="rhs">10.40</div></div>
+            <div class="row"><div>discount <span class="meta2">float</span></div><div class="rhs">0.00</div></div>
+            <div class="row"><div><strong>total</strong> <span class="meta2">float</span></div><div class="rhs"><span class="badge good">140.35</span></div></div>
+          </div>
+
+          <div style="margin-top:12px">
+            <div class="panehead">
+              <div class="title"><strong>Watches</strong></div>
+              <div class="tabs">
+                <span class="tab sel">Frame</span>
+                <span class="tab">Pinned</span>
+                <span class="kbd">w</span>
+              </div>
+            </div>
+            <div class="list">
+              <div class="row"><div>total</div><div class="rhs"><span class="badge good">140.35</span></div></div>
+              <div class="row"><div>order.user.email</div><div class="rhs"><span class="badge">…</span></div></div>
+              <div class="row"><div><span class="meta2">⚠ live watches require explicit opt-in</span></div><div></div></div>
+            </div>
+          </div>
+
+          <div class="callout">
+            <div><strong>Paging:</strong> large containers show a preview first, then page children on expand. <span class="muted">No UI freezes.</span></div>
+          </div>
+        </div>
+
+        <div class="pane bottom">
+          <div class="console">
+            <div class="panehead">
+              <div class="title"><strong>Console</strong> <span class="badge">eval</span></div>
+              <div class="tabs">
+                <span class="tab sel">Debug</span>
+                <span class="tab">Stdout</span>
+                <span class="tab">Stderr</span>
+                <span class="kbd">:</span>
+              </div>
+            </div>
+            <div class="term">
+<span class="prompt">&gt;&gt;&gt;</span> order.user.email
+'indra@example.com'
+<span class="prompt">&gt;&gt;&gt;</span> total
+140.35
+            </div>
+            <div class="input">
+              <div>Evaluate in frame: <strong>checkout()</strong> • type expression…</div>
+              <div><span class="kbd">Enter</span> run</div>
+            </div>
+          </div>
+
+          <div class="console">
+            <div class="panehead">
+              <div class="title"><strong>Transcript</strong> <span class="badge">jsonl</span></div>
+              <div class="tabs">
+                <span class="tab sel">Timeline</span>
+                <span class="tab">Bookmarks</span>
+                <span class="kbd">T</span>
+              </div>
+            </div>
+            <div class="term">
+21:11:03  session  started  run python -m myapp
+21:11:07  stopped   breakpoint  app/service.py:12
+21:11:08  watch     total → 140.35
+21:11:09  eval      order.user.email
+21:11:10  output    INFO charge ok
+            </div>
+            <div class="input">
+              <div>Export: transcript.md • transcript.jsonl • support bundle</div>
+              <div><span class="kbd">Ctrl+E</span> export</div>
+            </div>
+          </div>
+        </div>
+      </div>
+
+      <div class="statusline">
+        <div class="hint">
+          <span><span class="kbd">Tab</span> focus</span>
+          <span><span class="kbd">/</span> filter</span>
+          <span><span class="kbd">Enter</span> open/expand</span>
+          <span><span class="kbd">Esc</span> back</span>
+        </div>
+        <div class="hint">
+          <span><span class="kbd">F5</span> continue</span>
+          <span><span class="kbd">F10</span> next</span>
+          <span><span class="kbd">F11</span> step</span>
+          <span><span class="kbd">b</span> breakpoint</span>
+          <span><span class="kbd">Ctrl+P</span> palette</span>
+        </div>
+      </div>
+    </div>
+
+    <!-- Main + command palette overlay -->
+    <div class="mock">
+      <div class="topbar">
+        <div class="pills">
+          <span class="pill"><strong>yathaavat</strong> <span class="dim">•</span> workspace <strong>~/work/myapp</strong></span>
+          <span class="pill state-paused"><strong>PAUSED</strong></span>
+          <span class="pill">app/service.py:12</span>
+        </div>
+        <div class="pills">
+          <span class="pill"><span class="kbd">Ctrl+P</span> palette</span>
+          <span class="pill"><span class="kbd">/</span> filter</span>
+          <span class="pill"><span class="kbd">Esc</span> close</span>
+        </div>
+      </div>
+
+      <div class="grid">
+        <div class="pane"><div class="panehead"><div class="title"><strong>Stack</strong></div><div class="tabs"><span class="tab sel">Frames</span><span class="kbd">t</span></div></div><div class="list"><div class="row sel"><div><strong>&gt;</strong> checkout()</div><div class="rhs"><span class="badge info">current</span></div></div><div class="row"><div>compute_total()</div><div></div></div></div></div>
+        <div class="pane"><div class="panehead"><div class="title"><strong>Source</strong></div><div class="tabs"><span class="tab sel">File</span><span class="kbd">/</span></div></div><div class="code" style="height:100%"><div class="codeline"><span class="ln">…</span><span class="src"><span class="comment">source suppressed under palette</span></span></div></div></div>
+        <div class="pane"><div class="panehead"><div class="title"><strong>Locals</strong></div><div class="tabs"><span class="tab sel">Locals</span><span class="kbd">l</span></div></div><div class="list"><div class="row"><div>total</div><div class="rhs"><span class="badge good">140.35</span></div></div></div></div>
+        <div class="pane bottom">
+          <div class="console"><div class="panehead"><div class="title"><strong>Console</strong></div><div class="tabs"><span class="tab sel">Debug</span><span class="kbd">:</span></div></div><div class="term">…</div></div>
+          <div class="console"><div class="panehead"><div class="title"><strong>Transcript</strong></div><div class="tabs"><span class="tab sel">Timeline</span><span class="kbd">T</span></div></div><div class="term">…</div></div>
+        </div>
+      </div>
+
+      <div class="overlay">
+        <div class="dialog">
+          <div class="dhead">
+            <div><strong>Command Palette</strong> <span class="dim">• fuzzy</span></div>
+            <div class="pills">
+              <span class="pill"><span class="kbd">↑/↓</span> move</span>
+              <span class="pill"><span class="kbd">Enter</span> run</span>
+              <span class="pill"><span class="kbd">Esc</span> close</span>
+            </div>
+          </div>
+          <div class="dbody">
+            <div class="input" style="margin:0 0 10px 0">
+              <div>Query: <strong>rt</strong></div>
+              <div class="muted">paused-only included</div>
+            </div>
+            <div class="palette-row sel">
+              <div><strong>Run to Cursor</strong></div><div class="id">debug.run_to_cursor</div><div class="when">Ctrl+F10</div>
+            </div>
+            <div class="palette-row">
+              <div>Restart Session</div><div class="id">debug.restart</div><div class="when">Ctrl+Shift+F5</div>
+            </div>
+            <div class="palette-row">
+              <div>Toggle Breakpoint</div><div class="id">breakpoint.toggle</div><div class="when">F9 / b</div>
+            </div>
+            <div class="palette-row">
+              <div>Safe Attach…</div><div class="id">session.attach.safe</div><div class="when">:attach</div>
+            </div>
+            <div class="palette-row">
+              <div>Export Transcript…</div><div class="id">export.transcript</div><div class="when">Ctrl+E</div>
+            </div>
+            <div class="subtle">
+              <div><span class="kbd">Tab</span> show details • <span class="kbd">/</span> search within commands</div>
+              <div class="muted">Everything is discoverable. No memorization required.</div>
+            </div>
+          </div>
+        </div>
+      </div>
+    </div>
+
+    <!-- Attach picker (discover + connect on the fly) -->
+    <div class="mock">
+      <div class="topbar">
+        <div class="pills">
+          <span class="pill"><strong>Attach</strong> <span class="dim">•</span> safe attach (PEP 768)</span>
+          <span class="pill">filter: <strong>api</strong></span>
+          <span class="pill"><span class="badge info">loopback-only</span></span>
+        </div>
+        <div class="pills">
+          <span class="pill"><span class="kbd">Enter</span> attach</span>
+          <span class="pill"><span class="kbd">r</span> refresh</span>
+          <span class="pill"><span class="kbd">Esc</span> back</span>
+        </div>
+      </div>
+
+      <div style="display:grid; grid-template-columns: 1fr 360px; height:560px">
+        <div class="pane" style="border-bottom:none;">
+          <div class="panehead">
+            <div class="title"><strong>Processes</strong> <span class="badge">local</span></div>
+            <div class="tabs"><span class="tab sel">All</span><span class="tab">Python</span><span class="tab">3.14+</span></div>
+          </div>
+
+          <div class="code" style="height:calc(100% - 0px)">
+            <div class="codeline"><span class="ln">PID</span><span class="src"><span class="comment">USER      PY     SAFE     CMD</span></span></div>
+            <div class="codeline exec"><span class="ln">1234</span><span class="src">robin     3.14   <span class="good">ready</span>    python -m myapp.api</span></div>
+            <div class="codeline"><span class="ln">2210</span><span class="src">robin     ?      <span class="warn">probe</span>    uv run -m worker.api</span></div>
+            <div class="codeline"><span class="ln">3312</span><span class="src">robin     3.12   <span class="bad">no</span>       python3.12 -m legacy.api</span></div>
+            <div class="codeline"><span class="ln">4888</span><span class="src">root      ?      <span class="bad">no</span>       /usr/bin/python3 -m service</span></div>
+            <div class="codeline"><span class="ln">5021</span><span class="src">robin     3.14   <span class="warn">pending</span>  python -m myapp.web (blocked in I/O)</span></div>
+          </div>
+        </div>
+
+        <div class="pane" style="border-right:none; border-bottom:none;">
+          <div class="panehead">
+            <div class="title"><strong>Details</strong></div>
+            <div class="tabs"><span class="kbd">Tab</span> toggle</div>
+          </div>
+
+          <div class="callout">
+            <div><strong>PID 1234</strong> <span class="muted">python -m myapp.api</span></div>
+            <div style="margin-top:8px">
+              <div><span class="badge info">CPython 3.14.x likely</span></div>
+              <div style="margin-top:6px"><span class="badge good">safe attach supported</span> <span class="muted">via sys.remote_exec</span></div>
+              <div style="margin-top:6px"><span class="badge">bind</span> 127.0.0.1 only</div>
+            </div>
+          </div>
+
+          <div class="callout" style="border-color:rgba(255,211,124,.22); background:rgba(255,211,124,.05)">
+            <div><strong>Why some entries are “no”</strong></div>
+            <div class="muted" style="margin-top:6px">
+              • version mismatch (must be 3.14 for safe attach)<br/>
+              • permissions (ptrace/admin)<br/>
+              • remote debug disabled (PYTHON_DISABLE_REMOTE_DEBUG / -X disable-remote-debug)
+            </div>
+          </div>
+
+          <div class="input">
+            <div>Action: <strong>Safe attach</strong> → connect debugpy via DAP</div>
+            <div><span class="kbd">Enter</span></div>
+          </div>
+        </div>
+      </div>
+    </div>
+
+    <!-- Safe attach progress (handshake) -->
+    <div class="mock">
+      <div class="topbar">
+        <div class="pills">
+          <span class="pill"><strong>Safe attach</strong> <span class="dim">•</span> PID <strong>1234</strong></span>
+          <span class="pill">PEP 768 <span class="dim">/</span> sys.remote_exec</span>
+          <span class="pill state-run"><strong>ATTACHING…</strong></span>
+        </div>
+        <div class="pills">
+          <span class="pill"><span class="kbd">Esc</span> cancel</span>
+          <span class="pill"><span class="kbd">?</span> help</span>
+        </div>
+      </div>
+
+      <div style="padding:14px 14px 16px;">
+        <div style="display:grid; grid-template-columns: 1fr 360px; gap:14px;">
+          <div class="pane" style="border:1px solid rgba(255,255,255,.08); border-radius:14px; height:440px">
+            <div class="panehead">
+              <div class="title"><strong>Progress</strong></div>
+              <div class="tabs"><span class="badge info">timeout 8s</span></div>
+            </div>
+
+            <div class="list">
+              <div class="row"><div><span class="badge good">1</span> probe interpreter</div><div class="rhs"><span class="badge good">ok</span></div></div>
+              <div class="row"><div><span class="badge good">2</span> policy checks</div><div class="rhs"><span class="badge good">ok</span></div></div>
+              <div class="row sel"><div><span class="badge info">3</span> inject bootstrap + wait safe point</div><div class="rhs"><span class="badge warn">3.2s</span></div></div>
+              <div class="row"><div><span class="badge">4</span> connect DAP</div><div class="rhs"><span class="badge">pending</span></div></div>
+            </div>
+
+            <div class="callout">
+              <div><strong>Waiting for a safe evaluation point</strong></div>
+              <div class="muted" style="margin-top:6px">
+                If the process is blocked in I/O or native code, attach may not complete until the next bytecode instruction (or a signal).
+              </div>
+              <div style="margin-top:8px">
+                <span class="badge info">handshake</span> writes <span class="badge">handshake.json</span> when ready (observable, debuggable)
+              </div>
+            </div>
+
+            <div class="term" style="height:140px; margin-top:10px">
+12:03:11  write bootstrap.py → /tmp/yathaavat_attach_9c1/
+12:03:11  remote_exec(pid=1234, script=/tmp/…/bootstrap.py)
+12:03:14  waiting: safe point not reached yet…
+            </div>
+          </div>
+
+          <div class="pane" style="border:1px solid rgba(255,255,255,.08); border-radius:14px; height:440px; border-right:none;">
+            <div class="panehead">
+              <div class="title"><strong>Security</strong></div>
+              <div class="tabs"><span class="badge">defaults</span></div>
+            </div>
+            <div class="callout">
+              <div><strong>Secure by default</strong></div>
+              <div class="muted" style="margin-top:6px">
+                • binds debug port to <strong>127.0.0.1</strong><br/>
+                • refuses non-loopback unless you confirm<br/>
+                • respects <strong>PYTHON_DISABLE_REMOTE_DEBUG</strong> and <strong>-X disable-remote-debug</strong>
+              </div>
+            </div>
+
+            <div class="callout" style="border-color:rgba(255,124,155,.22); background:rgba(255,124,155,.05)">
+              <div><strong>Permission reality</strong></div>
+              <div class="muted" style="margin-top:6px">
+                Linux: ptrace_scope / CAP_SYS_PTRACE<br/>
+                macOS: often requires sudo<br/>
+                Windows: admin / SeDebugPrivilege
+              </div>
+            </div>
+
+            <div class="input">
+              <div>Need help? open troubleshooting</div>
+              <div><span class="kbd">?</span></div>
+            </div>
+          </div>
+        </div>
+      </div>
+    </div>
+
+    <!-- Exceptions: ExceptionGroup -->
+    <div class="mock">
+      <div class="topbar">
+        <div class="pills">
+          <span class="pill"><strong>yathaavat</strong> <span class="dim">•</span> workspace <strong>~/work/myapp</strong></span>
+          <span class="pill state-paused"><strong>PAUSED</strong> <span class="dim">stop:</span> exception</span>
+          <span class="pill">ExceptionGroup <strong>(3)</strong></span>
+        </div>
+        <div class="pills">
+          <span class="pill"><span class="kbd">Enter</span> open frame</span>
+          <span class="pill"><span class="kbd">c</span> copy traceback</span>
+          <span class="pill"><span class="kbd">Esc</span> back</span>
+        </div>
+      </div>
+
+      <div style="display:grid; grid-template-columns: 420px 1fr; height:560px">
+        <div class="pane" style="border-bottom:none;">
+          <div class="panehead">
+            <div class="title"><strong>Exceptions</strong></div>
+            <div class="tabs">
+              <span class="tab sel">Group</span>
+              <span class="tab">Trace</span>
+              <span class="kbd">x</span>
+            </div>
+          </div>
+          <div class="list">
+            <div class="row sel"><div><strong>[1]</strong> TimeoutError <span class="meta2">db.acquire() timed out</span></div><div class="rhs"><span class="badge warn">root</span></div></div>
+            <div class="row"><div><strong>[2]</strong> ValueError <span class="meta2">invalid customer id</span></div><div class="rhs"><span class="badge">—</span></div></div>
+            <div class="row"><div><strong>[3]</strong> KeyError <span class="meta2">'email'</span></div><div class="rhs"><span class="badge">—</span></div></div>
+          </div>
+
+          <div class="callout">
+            <div><strong>Exception lenses</strong> <span class="muted">(plugin-ready)</span></div>
+            <div class="muted" style="margin-top:6px">
+              Add contextual actions per exception type (SQL, HTTP, validation, etc.) without forking yathaavat.
+            </div>
+          </div>
+        </div>
+
+        <div class="pane" style="border-right:none; border-bottom:none;">
+          <div class="panehead">
+            <div class="title"><strong>Details</strong> <span class="badge">TimeoutError</span></div>
+            <div class="tabs">
+              <span class="tab sel">Summary</span>
+              <span class="tab">Frames</span>
+              <span class="tab">Notes</span>
+            </div>
+          </div>
+
+          <div class="callout" style="margin-top:0">
+            <div><strong>TimeoutError:</strong> db.acquire() timed out after <strong>2.0s</strong></div>
+            <div class="muted" style="margin-top:6px">
+              Frame: <strong>app/db.py:41</strong> acquire<br/>
+              Suggestion: inspect pool state • check task tree • add a logpoint to retry loop
+            </div>
+          </div>
+
+          <div style="margin-top:12px">
+            <div class="panehead">
+              <div class="title"><strong>Source context</strong></div>
+              <div class="tabs"><span class="badge">read-only</span></div>
+            </div>
+            <div class="code" style="height:300px">
+              <div class="codeline"><span class="ln">39</span><span class="src">async def acquire(self):</span></div>
+              <div class="codeline exec"><span class="ln">41</span><span class="src">    return await self._pool.acquire(timeout=2.0)</span></div>
+              <div class="codeline"><span class="ln">42</span><span class="src"> </span></div>
+              <div class="codeline"><span class="ln">43</span><span class="src"><span class="comment"># Tip: press Enter to jump here in Source view</span></span></div>
+            </div>
+          </div>
+
+          <div class="input">
+            <div>Actions: <strong>break-on-raise</strong> • <strong>open tasks</strong> • <strong>copy traceback</strong></div>
+            <div class="muted"><span class="kbd">Ctrl+P</span> palette</div>
+          </div>
+        </div>
+      </div>
+    </div>
+
+    <!-- Async tasks / hang investigation -->
+    <div class="mock">
+      <div class="topbar">
+        <div class="pills">
+          <span class="pill"><strong>Async Tasks</strong> <span class="kbd"><span class="sa">kaarya</span></span></span>
+          <span class="pill state-run"><strong>RUNNING</strong></span>
+          <span class="pill">hang suspect: awaiting <strong>db.acquire()</strong></span>
+          <span class="pill"><span class="badge">best-effort</span> coroutine stacks</span>
+        </div>
+        <div class="pills">
+          <span class="pill"><span class="kbd">Ctrl+A</span> tasks</span>
+          <span class="pill"><span class="kbd">Enter</span> jump-to-await</span>
+          <span class="pill"><span class="kbd">/</span> filter</span>
+        </div>
+      </div>
+
+      <div style="display:grid; grid-template-columns: 1fr 420px; height:560px">
+        <div class="pane" style="border-bottom:none;">
+          <div class="panehead">
+            <div class="title"><strong>Task tree</strong> <span class="badge">pstree</span></div>
+            <div class="tabs"><span class="tab sel">Tree</span><span class="tab">List</span><span class="tab">Threads</span></div>
+          </div>
+
+          <div class="code" style="height:460px">
+            <div class="codeline"><span class="ln"> </span><span class="src">serve_forever()                                  <span class="badge good">RUNNABLE</span></span></div>
+            <div class="codeline"><span class="ln"> </span><span class="src">├─ http: handle_request(id=9b21)                 <span class="badge good">RUNNABLE</span></span></div>
+            <div class="codeline"><span class="ln"> </span><span class="src">├─ http: handle_request(id=c0ad)                 <span class="badge warn">AWAIT</span> <span class="comment">→ read_body()</span></span></div>
+            <div class="codeline exec"><span class="ln"> </span><span class="src">└─ job: sync_orders()                            <span class="badge warn">AWAIT</span> <span class="comment">→ db.acquire()</span></span></div>
+            <div class="codeline"><span class="ln"> </span><span class="src">   ├─ pool: wait_for_connection()                <span class="badge warn">AWAIT</span></span></div>
+            <div class="codeline"><span class="ln"> </span><span class="src">   └─ retry: backoff_sleep(2.0s)                 <span class="badge">SLEEP</span></span></div>
+          </div>
+
+          <div class="callout">
+            yathaavat prioritizes <strong>hang investigation</strong>: fast task filtering, coroutine stacks, and best-effort “jump to await point”.
+          </div>
+        </div>
+
+        <div class="pane" style="border-right:none; border-bottom:none;">
+          <div class="panehead">
+            <div class="title"><strong>Selected</strong> <span class="badge">job: sync_orders()</span></div>
+            <div class="tabs"><span class="kbd">Enter</span> jump</div>
+          </div>
+
+          <div class="callout" style="margin-top:0">
+            <div><strong>State:</strong> awaiting <strong>db.acquire()</strong></div>
+            <div class="muted" style="margin-top:6px">
+              If backend can’t provide coroutine stacks, yathaavat falls back to thread stacks and logs.
+            </div>
+          </div>
+
+          <div style="margin-top:12px">
+            <div class="panehead">
+              <div class="title"><strong>Coroutine stack</strong></div>
+              <div class="tabs"><span class="badge">preview</span></div>
+            </div>
+            <div class="term" style="height:240px">
+app/jobs.py:88    sync_orders
+app/db.py:41      acquire
+app/pool.py:112   wait_for_connection
+            </div>
+          </div>
+
+          <div class="input">
+            <div>Actions: <strong>jump</strong> • <strong>open source</strong> • <strong>bookmark</strong></div>
+            <div><span class="kbd">b</span> bookmark</div>
+          </div>
+        </div>
+      </div>
+    </div>
+
+    <!-- Compact (80×24) -->
+    <div class="mock">
+      <div class="topbar">
+        <div class="pills">
+          <span class="pill"><strong>Compact</strong> <span class="dim">•</span> 80×24</span>
+          <span class="pill state-paused"><strong>PAUSED</strong></span>
+          <span class="pill">app/service.py:12</span>
+        </div>
+        <div class="pills">
+          <span class="pill"><span class="kbd">Tab</span> focus</span>
+          <span class="pill"><span class="kbd">Ctrl+P</span> palette</span>
+        </div>
+      </div>
+
+      <div class="compact">
+        <div class="termframe">
+          <div class="termhead">
+            <div><strong>yathaavat</strong> <span class="dim">PAUSED</span>  pid 1234  checkout()</div>
+            <div class="dim">Tabs: Source | Stack | Locals | Watches | Bps | Console</div>
+          </div>
+          <div class="termgrid">
+Tabs: <span class="f">[Source]</span> Stack Locals Watches Bps Console Tasks Exceptions
+ 10 def checkout(order):
+ 11     validate(order)
+ 12 <span class="hi">→ total = compute_total(order)   <span class="dim"># total →</span> 140.35</span>
+ 13     charge(order.user, total)
+ 14     persist(order, total)
+ …
+ Locals preview: total 140.35  subtotal 129.95  tax 10.40  discount 0.00
+ &gt;&gt;&gt; <span class="f">_</span>
+ <span class="dim">[F5]cont  [n]next  [s]step  [b]bp  [/]find  [Esc]back</span>
+          </div>
+        </div>
+      </div>
+    </div>
+
+  </div>
+</body>
+</html>

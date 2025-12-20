@@ -1,0 +1,63 @@
+[build-system]
+requires = ["hatchling>=1.26"]
+build-backend = "hatchling.build"
+
+[project]
+name = "yathaavat"
+version = "0.1.0"
+description = "A terminal-first visual debugger for Python 3.14+"
+readme = "README.md"
+requires-python = ">=3.14"
+dependencies = [
+  "platformdirs>=4.3.0",
+  "debugpy>=1.8.19",
+  "textual>=0.86.0",
+]
+
+[project.optional-dependencies]
+dev = [
+  "mypy>=1.14.0",
+  "pre-commit>=4.0.0",
+  "pytest>=8.3.0",
+  "ruff>=0.9.0",
+]
+
+[project.scripts]
+yathaavat = "yathaavat.cli:main"
+
+[project.entry-points."yathaavat.plugins"]
+builtin = "yathaavat.plugins.builtin:plugin"
+processes = "yathaavat.plugins.processes:plugin"
+debugpy = "yathaavat.plugins.debugpy:plugin"
+
+[tool.hatch.build.targets.wheel]
+packages = ["src/yathaavat"]
+
+[tool.pytest.ini_options]
+testpaths = ["tests"]
+addopts = ["-q"]
+
+[tool.ruff]
+target-version = "py314"
+line-length = 100
+
+[tool.ruff.lint]
+select = [
+  "E",   # pycodestyle
+  "F",   # pyflakes
+  "I",   # isort
+  "N",   # pep8-naming
+  "UP",  # pyupgrade
+  "B",   # flake8-bugbear
+  "RUF", # ruff-specific rules
+]
+
+[tool.ruff.lint.isort]
+combine-as-imports = true
+
+[tool.mypy]
+python_version = "3.14"
+warn_unused_configs = true
+strict = true
+pretty = true
+show_error_codes = true
