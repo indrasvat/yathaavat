@@ -2,8 +2,10 @@ from __future__ import annotations
 
 import asyncio
 import json
+import subprocess
 import tempfile
 from pathlib import Path
+from typing import Any
 
 import pytest
 
@@ -40,3 +42,24 @@ def test_await_remote_exec_status_listening_returns() -> None:
 
     with tempfile.TemporaryDirectory() as td:
         asyncio.run(main(Path(td)))
+
+
+def test_pid_attach_timeout_adds_transcript(monkeypatch: pytest.MonkeyPatch) -> None:
+    async def main() -> None:
+        store = SessionStore()
+        mgr = DebugpySessionManager(store=store, host=NullUiHost())
+
+        def fake_run(cmd: list[str], **kwargs: Any) -> subprocess.CompletedProcess[str]:
+            timeout = float(kwargs.get("timeout", 0))
+            raise subprocess.TimeoutExpired(cmd=cmd, timeout=timeout, output=b"", stderr=b"boom")
+
+        monkeypatch.setattr(subprocess, "run", fake_run)
+
+        with pytest.raises(TimeoutError, match="PID attach timed out"):
+            await mgr.attach(12345)
+
+        transcript = "\n".join(store.snapshot().transcript)
+        assert "PID attach timed out" in transcript
+        assert "boom" in transcript
+
+    asyncio.run(main())

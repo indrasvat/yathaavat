@@ -36,6 +36,10 @@ run: ## Launch the TUI
 iterm2: ## Drive TUI in iTerm2 + capture screenshots
 	@uv run --python $(PYTHON) .claude/automations/iterm2_capture_tui.py
 
+.PHONY: iterm2-safe
+iterm2-safe: ## Drive safe-attach in iTerm2
+	@uv run --python $(PYTHON) .claude/automations/iterm2_capture_safe_attach.py
+
 .PHONY: test
 test: ## Run tests (pytest)
 	@uv run --python $(PYTHON) pytest

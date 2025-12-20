@@ -123,21 +123,40 @@ class DebugpySessionManager(SessionManager):
         self.store.update(pid=pid)
         self.store.append_transcript(f"Injecting debugpy into PID {pid} (listen 127.0.0.1:{port})…")
 
-        completed = await asyncio.to_thread(
-            subprocess.run,
-            [
-                sys.executable,
-                "-m",
-                "debugpy",
-                "--listen",
-                f"127.0.0.1:{port}",
-                "--pid",
-                str(pid),
-            ],
-            capture_output=True,
-            text=True,
-            check=False,
-        )
+        try:
+            completed = await asyncio.to_thread(
+                subprocess.run,
+                [
+                    sys.executable,
+                    "-m",
+                    "debugpy",
+                    "--listen",
+                    f"127.0.0.1:{port}",
+                    "--pid",
+                    str(pid),
+                ],
+                capture_output=True,
+                text=True,
+                check=False,
+                timeout=10.0,
+            )
+        except subprocess.TimeoutExpired as exc:
+            msg = (
+                "PID attach timed out. On macOS this often requires elevated privileges, "
+                "or it may be unsupported by the OS debugger security policy."
+            )
+            raw_detail = exc.stderr or exc.stdout or ""
+            match raw_detail:
+                case bytes() | bytearray():
+                    detail = raw_detail.decode(errors="replace").strip()
+                case str():
+                    detail = raw_detail.strip()
+                case _:
+                    detail = str(raw_detail).strip()
+            if detail:
+                msg = f"{msg}\n{detail}".rstrip()
+            self.store.append_transcript(msg)
+            raise TimeoutError(msg) from exc
 
         if completed.returncode != 0:
             stderr = (completed.stderr or "").strip()

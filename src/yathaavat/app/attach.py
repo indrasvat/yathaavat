@@ -1,8 +1,10 @@
 from __future__ import annotations
 
 import asyncio
+import os
 import re
 import shlex
+import sys
 from dataclasses import dataclass
 from typing import ClassVar
 
@@ -24,7 +26,8 @@ class _Row:
     label: str
     detail: str
     dap_endpoint: tuple[str, int] | None = None
-    supports_safe_attach: bool = False
+    safe_attach_candidate: bool = False
+    safe_attach_enabled: bool = False
 
 
 class AttachPicker(ModalScreen[None]):
@@ -62,6 +65,23 @@ class AttachPicker(ModalScreen[None]):
         self.query_text = event.value
         self._refresh_results()
 
+    @on(Input.Submitted, "#attach_input")
+    def _on_submit(self, event: Input.Submitted) -> None:
+        rows = self._rows()
+        if not rows:
+            return
+        q = event.value.strip()
+        chosen = rows[0]
+        if q.isdigit():
+            pid = int(q)
+            chosen = next((r for r in rows if r.pid == pid), chosen)
+        self._start_attach(
+            pid=chosen.pid,
+            dap_endpoint=chosen.dap_endpoint,
+            safe_attach_candidate=chosen.safe_attach_candidate,
+            safe_attach_enabled=chosen.safe_attach_enabled,
+        )
+
     @on(ListView.Selected, "#attach_list")
     def _on_selected(self, event: ListView.Selected) -> None:
         item = event.item
@@ -69,6 +89,23 @@ class AttachPicker(ModalScreen[None]):
         if not isinstance(pid, int):
             return
         dap_endpoint = getattr(item, "dap_endpoint", None)
+        safe_attach_candidate = bool(getattr(item, "safe_attach_candidate", False))
+        safe_attach_enabled = bool(getattr(item, "safe_attach_enabled", False))
+        self._start_attach(
+            pid=pid,
+            dap_endpoint=dap_endpoint if isinstance(dap_endpoint, tuple) else None,
+            safe_attach_candidate=safe_attach_candidate,
+            safe_attach_enabled=safe_attach_enabled,
+        )
+
+    def _start_attach(
+        self,
+        *,
+        pid: int,
+        dap_endpoint: tuple[str, int] | None,
+        safe_attach_candidate: bool,
+        safe_attach_enabled: bool,
+    ) -> None:
         manager: SessionManager | None
         try:
             manager = self._ctx.services.get(SESSION_MANAGER)
@@ -93,10 +130,16 @@ class AttachPicker(ModalScreen[None]):
                         raise TypeError("Invalid DAP endpoint")
                     self._ctx.host.notify(f"Connecting to {host}:{port}…", timeout=2.0)
                     await manager.connect(host, port)
-                elif safe_manager is not None and getattr(item, "supports_safe_attach", False):
+                elif safe_manager is not None and safe_attach_enabled:
                     self._ctx.host.notify(f"Safe-attaching to PID {pid}…", timeout=2.0)
                     await safe_manager.safe_attach(pid)
                 else:
+                    if safe_manager is not None and safe_attach_candidate:
+                        self._ctx.host.notify(
+                            "Safe attach requires elevated privileges on this platform; "
+                            "falling back to debugpy --pid.",
+                            timeout=3.0,
+                        )
                     self._ctx.host.notify(f"Attaching to PID {pid}…", timeout=2.0)
                     await manager.attach(pid)
             except Exception as exc:
@@ -145,14 +188,15 @@ class AttachPicker(ModalScreen[None]):
             if not self.show_non_python and not proc.is_python:
                 continue
             dap_endpoint = _debugpy_dap_endpoint(proc.args)
-            supports_safe_attach = proc.python_version_hint == "3.14"
+            safe_attach_candidate = proc.python_version_hint == "3.14"
+            safe_attach_enabled = safe_attach_candidate and _safe_attach_enabled()
             py = f"  py{proc.python_version_hint or ''}".rstrip() if proc.is_python else ""
             label = f"{proc.pid:>6}  {proc.command}{py}"
             if dap_endpoint is not None:
                 host, port = dap_endpoint
                 label = f"{label}  dap {host}:{port}"
-            elif supports_safe_attach:
-                label = f"{label}  safe"
+            elif safe_attach_candidate:
+                label = f"{label}  safe" if safe_attach_enabled else f"{label}  safe (sudo)"
             detail = proc.args
             if q and q not in label.lower() and q not in detail.lower():
                 continue
@@ -162,7 +206,8 @@ class AttachPicker(ModalScreen[None]):
                     label=label,
                     detail=_truncate(detail, 110),
                     dap_endpoint=dap_endpoint,
-                    supports_safe_attach=supports_safe_attach,
+                    safe_attach_candidate=safe_attach_candidate,
+                    safe_attach_enabled=safe_attach_enabled,
                 )
             )
         out.sort(key=lambda r: r.pid)
@@ -188,7 +233,8 @@ class AttachPicker(ModalScreen[None]):
             )
             li.pid = row.pid  # type: ignore[attr-defined]
             li.dap_endpoint = row.dap_endpoint  # type: ignore[attr-defined]
-            li.supports_safe_attach = row.supports_safe_attach  # type: ignore[attr-defined]
+            li.safe_attach_candidate = row.safe_attach_candidate  # type: ignore[attr-defined]
+            li.safe_attach_enabled = row.safe_attach_enabled  # type: ignore[attr-defined]
             lv.append(li)
 
 
@@ -197,6 +243,14 @@ def _truncate(text: str, max_len: int) -> str:
     if len(s) <= max_len:
         return s
     return f"{s[: max_len - 1]}…"
+
+
+def _safe_attach_enabled() -> bool:
+    # On macOS, `sys.remote_exec` currently requires task port privileges (root or entitlement).
+    if sys.platform == "darwin":
+        geteuid = getattr(os, "geteuid", None)
+        return callable(geteuid) and geteuid() == 0
+    return True
 
 
 _DEBUGPY_LISTEN_RE = re.compile(r"(?:^|\s)--listen(?:\s|$)")
