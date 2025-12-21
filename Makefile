@@ -32,6 +32,18 @@ sync: ## Create/update .venv and install deps (uv sync)
 run: ## Launch the TUI
 	@uv run --python $(PYTHON) $(PROJECT)
 
+.PHONY: demo-service
+demo-service: ## Run the demo HTTP service (debugpy + CPU endpoints)
+	@uv run --python $(PYTHON) python -Xfrozen_modules=off examples/demo_service.py
+
+.PHONY: demo-service-nodebug
+demo-service-nodebug: ## Run demo HTTP service without debugpy (for safe attach)
+	@YATHAAVAT_ENABLE_DEBUGPY=0 uv run --python $(PYTHON) python -Xfrozen_modules=off examples/demo_service.py
+
+.PHONY: demo-client
+demo-client: ## Drive the demo HTTP service with requests
+	@uv run --python $(PYTHON) examples/demo_service_client.py
+
 .PHONY: iterm2
 iterm2: ## Drive TUI in iTerm2 + capture screenshots
 	@uv run --python $(PYTHON) .claude/automations/iterm2_capture_tui.py
@@ -39,6 +51,10 @@ iterm2: ## Drive TUI in iTerm2 + capture screenshots
 .PHONY: iterm2-safe
 iterm2-safe: ## Drive safe-attach in iTerm2
 	@uv run --python $(PYTHON) .claude/automations/iterm2_capture_safe_attach.py
+
+.PHONY: iterm2-demo-service
+iterm2-demo-service: ## Drive demo HTTP service attach in iTerm2
+	@uv run --python $(PYTHON) .claude/automations/iterm2_capture_demo_service.py
 
 .PHONY: test
 test: ## Run tests (pytest)

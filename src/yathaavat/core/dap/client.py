@@ -8,6 +8,7 @@ from yathaavat.core.dap.codec import decode_message, encode_message, parse_conte
 
 type JsonObject = dict[str, object]
 type EventHandler = Callable[[JsonObject], Awaitable[None] | None]
+type DisconnectHandler = Callable[[BaseException], Awaitable[None] | None]
 
 
 class DapRequestError(Exception):
@@ -31,13 +32,20 @@ class DapClient:
         self._seq = 1
         self._pending: dict[int, _Pending] = {}
         self._event_handlers: list[EventHandler] = []
+        self._disconnect_handlers: list[DisconnectHandler] = []
         self._event_queue: asyncio.Queue[JsonObject] = asyncio.Queue()
         self._listen_task: asyncio.Task[None] | None = None
         self._event_task: asyncio.Task[None] | None = None
+        self._write_lock = asyncio.Lock()
         self._closed = False
+        self._disconnect_fired = False
 
     def on_event(self, handler: EventHandler) -> None:
         self._event_handlers.append(handler)
+
+    def on_disconnect(self, handler: DisconnectHandler) -> None:
+        """Called if the remote closes the underlying transport unexpectedly."""
+        self._disconnect_handlers.append(handler)
 
     def start(self) -> None:
         if self._listen_task is not None:
@@ -64,6 +72,8 @@ class DapClient:
     async def request(
         self, command: str, arguments: JsonObject | None = None, *, timeout_s: float = 15.0
     ) -> JsonObject:
+        if self._closed:
+            raise RuntimeError("DAP client is closed")
         seq = self._seq
         self._seq += 1
         request: JsonObject = {"seq": seq, "type": "request", "command": command}
@@ -73,8 +83,7 @@ class DapClient:
         loop = asyncio.get_running_loop()
         fut: asyncio.Future[JsonObject] = loop.create_future()
         self._pending[seq] = _Pending(command=command, future=fut)
-        self._writer.write(encode_message(request))
-        await self._writer.drain()
+        await self._send(request)
 
         try:
             response = await asyncio.wait_for(fut, timeout=timeout_s)
@@ -94,17 +103,11 @@ class DapClient:
                 await self._dispatch(msg)
         except asyncio.CancelledError:
             return
-        except (asyncio.IncompleteReadError, ConnectionResetError):
-            for pending in self._pending.values():
-                if not pending.future.done():
-                    pending.future.cancel()
-            self._pending.clear()
+        except (asyncio.IncompleteReadError, ConnectionResetError) as exc:
+            await self._handle_disconnect(exc)
             return
-        except Exception:
-            for pending in self._pending.values():
-                if not pending.future.done():
-                    pending.future.cancel()
-            self._pending.clear()
+        except Exception as exc:
+            await self._handle_disconnect(exc)
             raise
 
     async def _dispatch(self, msg: JsonObject) -> None:
@@ -139,8 +142,43 @@ class DapClient:
             "message": "Unsupported DAP request",
         }
         self._seq += 1
-        self._writer.write(encode_message(response))
-        await self._writer.drain()
+        await self._send(response)
+
+    async def _send(self, msg: JsonObject) -> None:
+        payload = encode_message(msg)
+        async with self._write_lock:
+            self._writer.write(payload)
+            await self._writer.drain()
+
+    async def _handle_disconnect(self, exc: BaseException) -> None:
+        if self._disconnect_fired:
+            return
+        self._disconnect_fired = True
+        self._closed = True
+
+        if self._event_task is not None:
+            self._event_task.cancel()
+        for pending in self._pending.values():
+            if not pending.future.done():
+                pending.future.set_exception(
+                    ConnectionError(f"DAP connection closed during {pending.command}")
+                )
+        self._pending.clear()
+
+        self._writer.close()
+        try:
+            await asyncio.wait_for(self._writer.wait_closed(), timeout=0.5)
+        except Exception:
+            pass
+
+        for handler in tuple(self._disconnect_handlers):
+            try:
+                result = handler(exc)
+                if result is not None:
+                    await result
+            except Exception:
+                # Best-effort: disconnect handlers must never crash the transport loop.
+                continue
 
     async def _event_loop(self) -> None:
         try:

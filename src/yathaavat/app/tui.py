@@ -56,6 +56,25 @@ class YathaavatApp(App[None]):
     }
     .pane_empty { padding: 1 1; color: #93a4c7; }
 
+    TabbedContent { height: 1fr; }
+    TabPane { padding: 0 0; }
+
+    #source_header {
+      height: 1;
+      padding: 0 1;
+      background: #0b1a2a;
+      color: #8bd5ff;
+    }
+    #source_view { height: 1fr; background: #0b0f14; }
+
+    #locals_table { height: 1fr; background: #0b0f14; }
+    #breakpoints_table { height: 1fr; background: #0b0f14; }
+
+    #console_log { height: 1fr; background: #0b0f14; }
+    #console_input { height: 1; }
+
+    #transcript_log { height: 1fr; background: #0b0f14; }
+
     #pal_root {
       width: 86%;
       max-width: 120;

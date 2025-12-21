@@ -17,6 +17,7 @@ from yathaavat.core.session import (
     SessionStore,
     ThreadInfo,
     VariableInfo,
+    VariablesManager,
 )
 from yathaavat.core.ui_host import NullUiHost, UiHost
 from yathaavat.core.widgets import Slot, WidgetContribution, WidgetRegistry
@@ -46,6 +47,7 @@ __all__ = [
     "ThreadInfo",
     "UiHost",
     "VariableInfo",
+    "VariablesManager",
     "WidgetContribution",
     "WidgetRegistry",
 ]

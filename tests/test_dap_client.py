@@ -2,6 +2,8 @@ from __future__ import annotations
 
 import asyncio
 
+import pytest
+
 from yathaavat.core.dap.client import DapClient
 from yathaavat.core.dap.codec import decode_message, encode_message, parse_content_length
 
@@ -121,6 +123,40 @@ def test_unknown_incoming_requests_are_rejected() -> None:
             client = DapClient(reader=reader, writer=writer)
             client.start()
             await asyncio.sleep(0.05)
+            await client.close()
+
+    asyncio.run(main())
+
+
+def test_disconnect_handler_fires_on_remote_close() -> None:
+    async def main() -> None:
+        disconnected = asyncio.Event()
+
+        async def handle_conn(reader: asyncio.StreamReader, writer: asyncio.StreamWriter) -> None:
+            # Read a request then close the transport without replying.
+            msg = await _read_message(reader)
+            assert msg["type"] == "request"
+            writer.close()
+            await writer.wait_closed()
+
+        server = await asyncio.start_server(handle_conn, "127.0.0.1", 0)
+        addr = server.sockets[0].getsockname()
+        host, port = addr[0], addr[1]
+
+        async with server:
+            reader, writer = await asyncio.open_connection(host, port)
+            client = DapClient(reader=reader, writer=writer)
+
+            def on_disconnect(exc: BaseException) -> None:
+                disconnected.set()
+
+            client.on_disconnect(on_disconnect)
+            client.start()
+
+            with pytest.raises(ConnectionError):
+                await client.request("initialize", {}, timeout_s=2.0)
+
+            await asyncio.wait_for(disconnected.wait(), timeout=2.0)
             await client.close()
 
     asyncio.run(main())

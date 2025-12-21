@@ -28,6 +28,19 @@ YATHAAVAT_DEMO_PORT=5678 uv run --python python3.14 examples/demo_app.py
 ```
 Then in the TUI: `Ctrl+K` → `127.0.0.1:5678`
 
+**HTTP service (long-lived)**
+1) In one terminal: `make demo-service`
+2) In another terminal: `make run` → `Ctrl+K` → `127.0.0.1:5678`
+3) Drive endpoints:
+   - `curl http://127.0.0.1:8000/health`
+   - `curl http://127.0.0.1:8000/cpu/primes?limit=200000`
+   - `curl http://127.0.0.1:8000/debug/break` (pauses only when yathaavat is connected)
+
+Optional load generator:
+```bash
+uv run --python python3.14 examples/demo_service_client.py --break-after 5
+```
+
 ## Notes (macOS)
 
 - Attaching to an existing PID (either via `sys.remote_exec` or `debugpy --pid`) may require elevated privileges and/or developer entitlements; when blocked, yathaavat times out and shows actionable transcript output.

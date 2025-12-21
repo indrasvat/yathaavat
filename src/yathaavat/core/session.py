@@ -54,6 +54,8 @@ class SessionSnapshot:
     selected_thread_id: int | None = None
     frames: tuple[FrameInfo, ...] = ()
     selected_frame_id: int | None = None
+    source_path: str | None = None
+    source_line: int | None = None
     locals: tuple[VariableInfo, ...] = ()
     breakpoints: tuple[BreakpointInfo, ...] = ()
     transcript: tuple[str, ...] = ()
@@ -130,6 +132,11 @@ class SessionManager(Protocol):
 @runtime_checkable
 class SafeAttachManager(SessionManager, Protocol):
     async def safe_attach(self, pid: int) -> None: ...
+
+
+@runtime_checkable
+class VariablesManager(SessionManager, Protocol):
+    async def get_variables(self, variables_reference: int) -> tuple[VariableInfo, ...]: ...
 
 
 SESSION_STORE: ServiceKey[SessionStore] = ServiceKey("session.store")

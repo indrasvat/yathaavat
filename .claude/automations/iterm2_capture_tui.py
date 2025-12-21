@@ -64,7 +64,7 @@ def _artifacts_dir() -> Path:
 def _frontmost_iterm2_cgwindow_id() -> int | None:
     windows = CGWindowListCopyWindowInfo(kCGWindowListOptionOnScreenOnly, kCGNullWindowID)
     for w in windows or []:
-        if w.get("kCGWindowOwnerName") == "iTerm2" and w.get("kCGWindowLayer") == 0:
+        if w.get("kCGWindowOwnerName") == "iTerm2":
             win_id = w.get("kCGWindowNumber")
             if isinstance(win_id, int):
                 return win_id
@@ -74,7 +74,10 @@ def _frontmost_iterm2_cgwindow_id() -> int | None:
 def _screencapture(path: Path) -> None:
     win_id = _frontmost_iterm2_cgwindow_id()
     if win_id is None:
-        raise RuntimeError("Could not find iTerm2 window id for screencapture")
+        # Fall back to full-screen capture if we can't locate the iTerm2 window id (e.g. CG window
+        # metadata changes across macOS versions).
+        subprocess.run(["screencapture", "-x", str(path)], check=True)
+        return
     subprocess.run(["screencapture", "-x", "-l", str(win_id), str(path)], check=True)
 
 
@@ -108,6 +111,39 @@ async def _wait_for_screen_not_contains(
         await asyncio.sleep(0.25)
     msg = f"Timed out waiting for screen to not contain {needle!r}"
     raise TimeoutError(msg)
+
+
+async def _run_palette(session: iterm2.Session, query: str, *, timeout_s: float = 8) -> None:
+    await session.async_send_text("\x10")  # Ctrl+P
+    await _wait_for_screen_contains(session, "Command Palette", timeout_s=timeout_s)
+    await asyncio.sleep(0.25)
+    await session.async_send_text(query)
+    await asyncio.sleep(0.35)
+    await session.async_send_text("\r")  # Enter
+    await _wait_for_screen_not_contains(session, "Command Palette", timeout_s=timeout_s)
+
+
+def _fn_key_sequence(n: int) -> str:
+    # iTerm2 defaults to xterm-style sequences.
+    match n:
+        case 5:
+            return "\x1b[15~"
+        case 6:
+            return "\x1b[17~"
+        case 7:
+            return "\x1b[18~"
+        case 8:
+            return "\x1b[19~"
+        case 9:
+            return "\x1b[20~"
+        case 10:
+            return "\x1b[21~"
+        case 11:
+            return "\x1b[23~"
+        case 12:
+            return "\x1b[24~"
+        case _:
+            raise ValueError(f"Unsupported Fn key: F{n}")
 
 
 async def main(connection: iterm2.Connection) -> None:
@@ -162,19 +198,24 @@ async def main(connection: iterm2.Connection) -> None:
         paused_png = out_dir / "tui_paused.png"
         _screencapture(paused_png)
 
-        # Toggle a breakpoint at the current line (b).
+        # Ensure focus isn't inside an Input widget (printable keys get consumed).
+        await session.async_send_text("\t\t")
+        await asyncio.sleep(0.25)
+
+        # Toggle a breakpoint at the current line.
         await session.async_send_text("b")
-        await asyncio.sleep(0.8)
+        await _wait_for_screen_contains(session, "Breakpoints set:", timeout_s=10)
+        await asyncio.sleep(0.5)
         bp_png = out_dir / "tui_breakpoint.png"
         _screencapture(bp_png)
 
-        # Step over (n).
+        # Step over.
         await session.async_send_text("n")
         await _wait_for_screen_contains(session, "Stopped (step)", timeout_s=12)
         step_png = out_dir / "tui_step.png"
         _screencapture(step_png)
 
-        # Continue (c) and wait for demo output.
+        # Continue and wait for demo output.
         await session.async_send_text("c")
         await _wait_for_screen_contains(session, "RUNNING", timeout_s=8)
         await _wait_for_screen_contains(session, "TOTAL", timeout_s=12)

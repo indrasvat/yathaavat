@@ -3,7 +3,14 @@ from __future__ import annotations
 from dataclasses import dataclass
 from typing import override
 
-from yathaavat.app.panels import ConsolePanel, LocalsPanel, SourcePanel, StackPanel, TranscriptPanel
+from yathaavat.app.panels import (
+    BreakpointsPanel,
+    ConsolePanel,
+    LocalsPanel,
+    SourcePanel,
+    StackPanel,
+    TranscriptPanel,
+)
 from yathaavat.core import (
     SESSION_MANAGER,
     SESSION_STORE,
@@ -96,13 +103,16 @@ class BuiltinPlugin(Plugin):
                 return
 
             snap = _snapshot(ctx)
-            frame_id = snap.selected_frame_id or (snap.frames[0].id if snap.frames else None)
-            frame = next((f for f in snap.frames if f.id == frame_id), None)
-            if frame is None or frame.path is None or frame.line is None:
-                host.notify("No source location for breakpoint.", timeout=2.0)
-                return
-
             try:
+                if snap.source_path is not None and isinstance(snap.source_line, int):
+                    await session.toggle_breakpoint(snap.source_path, snap.source_line)
+                    return
+
+                frame_id = snap.selected_frame_id or (snap.frames[0].id if snap.frames else None)
+                frame = next((f for f in snap.frames if f.id == frame_id), None)
+                if frame is None or frame.path is None or frame.line is None:
+                    host.notify("No source location for breakpoint.", timeout=2.0)
+                    return
                 await session.toggle_breakpoint(frame.path, frame.line)
             except Exception as exc:
                 host.notify(str(exc), timeout=2.5)
@@ -201,6 +211,14 @@ class BuiltinPlugin(Plugin):
                 title="Locals",
                 slot=Slot.RIGHT,
                 factory=lambda _ctx: LocalsPanel(ctx=_ctx),
+            )
+        )
+        ctx.widgets.register(
+            WidgetContribution(
+                id="builtin.breakpoints",
+                title="Breakpoints",
+                slot=Slot.RIGHT,
+                factory=lambda _ctx: BreakpointsPanel(ctx=_ctx),
             )
         )
         ctx.widgets.register(

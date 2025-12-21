@@ -4,6 +4,7 @@
 
 # Python / uv
 .venv/
+venv/
 __pycache__/
 *.py[cod]
 *.pyo
@@ -14,6 +15,10 @@ __pycache__/
 .coverage
 coverage.xml
 htmlcov/
+.local/
+
+# Env files
+*.env
 
 # Build artifacts
 dist/
@@ -25,4 +30,4 @@ build/
 *.zip
 
 # Local automations artifacts
-.claude/artifacts/
+.claude/

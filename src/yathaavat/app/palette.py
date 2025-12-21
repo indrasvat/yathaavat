@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import asyncio
 from dataclasses import dataclass
 from typing import ClassVar
 
@@ -31,6 +32,7 @@ class CommandPalette(ModalScreen[None]):
     def __init__(self, *, ctx: AppContext) -> None:
         super().__init__()
         self._ctx = ctx
+        self._tasks: set[asyncio.Task[None]] = set()
 
     def compose(self) -> ComposeResult:
         yield Container(
@@ -49,14 +51,28 @@ class CommandPalette(ModalScreen[None]):
         self.query_text = event.value
         self._refresh_results()
 
+    @on(Input.Submitted, "#pal_input")
+    def _on_submit(self, _event: Input.Submitted) -> None:
+        lv = self.query_one("#pal_list", ListView)
+        lv.action_select_cursor()
+
     @on(ListView.Selected, "#pal_list")
-    async def _on_selected(self, event: ListView.Selected) -> None:
+    def _on_selected(self, event: ListView.Selected) -> None:
         item = event.item
         cmd_id = getattr(item, "cmd_id", None)
         if not isinstance(cmd_id, str):
             return
-        await self._ctx.commands.get(cmd_id).run()
         self.app.pop_screen()
+
+        async def _run() -> None:
+            try:
+                await self._ctx.commands.get(cmd_id).run()
+            except Exception as exc:
+                self._ctx.host.notify(str(exc), timeout=3.0)
+
+        task = asyncio.create_task(_run())
+        self._tasks.add(task)
+        task.add_done_callback(self._tasks.discard)
 
     def _items(self) -> list[PaletteItem]:
         out: list[PaletteItem] = []
@@ -79,7 +95,9 @@ class CommandPalette(ModalScreen[None]):
     def _refresh_results(self) -> None:
         lv = self.query_one(ListView)
         lv.clear()
-        for it in self._items():
+        items = self._items()
+        for it in items:
             li = ListItem(Static(f"{it.title}  [{it.id}]  {it.key_hint}", classes="pal_row"))
             li.cmd_id = it.id  # type: ignore[attr-defined]
             lv.append(li)
+        lv.index = 0 if items else None

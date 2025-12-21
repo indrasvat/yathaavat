@@ -51,6 +51,27 @@ def _as_list(value: object) -> list[object]:
     return value if isinstance(value, list) else []
 
 
+def _parse_variables(items: list[object]) -> list[VariableInfo]:
+    variables: list[VariableInfo] = []
+    for item in items:
+        if not isinstance(item, dict):
+            continue
+        name = item.get("name")
+        value = item.get("value")
+        if not isinstance(name, str) or not isinstance(value, str):
+            continue
+        vtype = item.get("type")
+        variables.append(
+            VariableInfo(
+                name=name,
+                value=value,
+                type=vtype if isinstance(vtype, str) else None,
+                variables_reference=int(item.get("variablesReference") or 0),
+            )
+        )
+    return variables
+
+
 @dataclass(slots=True)
 class DebugpySessionManager(SessionManager):
     store: SessionStore
@@ -61,6 +82,7 @@ class DebugpySessionManager(SessionManager):
     _launched: asyncio.subprocess.Process | None = None
     _launch_output_task: asyncio.Task[None] | None = None
     _capture_launch_output: bool = False
+    _auto_resume_pending: bool = False
 
     async def connect(self, host: str, port: int) -> None:
         await self.disconnect()
@@ -74,6 +96,7 @@ class DebugpySessionManager(SessionManager):
         reader, writer = await self._open_connection_retry(host, port, timeout_s=timeout_s)
         self._dap = DapClient(reader=reader, writer=writer)
         self._dap.on_event(self._on_event)
+        self._dap.on_disconnect(self._on_disconnect)
         self._dap.start()
 
         try:
@@ -107,9 +130,9 @@ class DebugpySessionManager(SessionManager):
             config_task = asyncio.create_task(self._dap.request("configurationDone", {}))
             await attach_task
             await config_task
-        except (DapRequestError, TimeoutError) as exc:
+        except (ConnectionError, DapRequestError, TimeoutError) as exc:
             self.store.append_transcript(f"Attach failed: {exc}")
-            await self.disconnect()
+            await self._hard_disconnect()
             raise
 
         if self.store.snapshot().state != SessionState.PAUSED:
@@ -235,7 +258,12 @@ class DebugpySessionManager(SessionManager):
                 self._drain_launch_output(self._launched)
             )
 
-        await self.connect("127.0.0.1", port)
+        self._auto_resume_pending = True
+        self.store.update(
+            backend="debugpy", python=f"{sys.version_info.major}.{sys.version_info.minor}"
+        )
+        self.store.append_transcript(f"Connecting to debugpy server 127.0.0.1:{port}…")
+        await self._connect_with_timeout("127.0.0.1", port, timeout_s=6.0)
 
     async def disconnect(self) -> None:
         if self._dap is not None:
@@ -243,18 +271,7 @@ class DebugpySessionManager(SessionManager):
                 await self._dap.request("disconnect", {"terminateDebuggee": False}, timeout_s=2.0)
             except Exception:
                 pass
-            await self._dap.close()
-        self._dap = None
-        self._initialized = asyncio.Event()
-
-        self.store.update(
-            state=SessionState.DISCONNECTED,
-            threads=(),
-            selected_thread_id=None,
-            frames=(),
-            selected_frame_id=None,
-            locals=(),
-        )
+        await self._hard_disconnect()
 
     async def terminate(self) -> None:
         if self._dap is not None:
@@ -262,7 +279,7 @@ class DebugpySessionManager(SessionManager):
                 await self._dap.request("disconnect", {"terminateDebuggee": True}, timeout_s=2.0)
             except Exception:
                 pass
-        await self.disconnect()
+        await self._hard_disconnect()
         await self._terminate_launched()
 
     async def shutdown(self) -> None:
@@ -273,7 +290,14 @@ class DebugpySessionManager(SessionManager):
         dap = self._require_dap()
         thread_id = self._require_thread()
         await dap.request("continue", {"threadId": thread_id})
-        self.store.update(state=SessionState.RUNNING, frames=(), locals=(), selected_frame_id=None)
+        self.store.update(
+            state=SessionState.RUNNING,
+            frames=(),
+            locals=(),
+            selected_frame_id=None,
+            source_path=None,
+            source_line=None,
+        )
 
     async def pause(self) -> None:
         dap = self._require_dap()
@@ -291,7 +315,12 @@ class DebugpySessionManager(SessionManager):
         await dap.request("stepIn", {"threadId": thread_id})
 
     async def select_frame(self, frame_id: int) -> None:
-        self.store.update(selected_frame_id=frame_id)
+        frame = next((f for f in self.store.snapshot().frames if f.id == frame_id), None)
+        self.store.update(
+            selected_frame_id=frame_id,
+            source_path=frame.path if frame is not None else None,
+            source_line=frame.line if frame is not None else None,
+        )
         await self._refresh_locals(frame_id)
 
     async def evaluate(self, expression: str) -> str:
@@ -304,6 +333,13 @@ class DebugpySessionManager(SessionManager):
         result = str(_body(resp).get("result") or "")
         self.store.append_transcript(f">>> {expression}\n{result}")
         return result
+
+    async def get_variables(self, variables_reference: int) -> tuple[VariableInfo, ...]:
+        if variables_reference <= 0:
+            return ()
+        dap = self._require_dap()
+        resp = await dap.request("variables", {"variablesReference": variables_reference})
+        return tuple(_parse_variables(_as_list(_body(resp).get("variables"))))
 
     async def toggle_breakpoint(self, path: str, line: int) -> None:
         path = str(Path(path).expanduser().resolve())
@@ -330,6 +366,29 @@ class DebugpySessionManager(SessionManager):
             return snapshot.threads[0].id
         raise RuntimeError("No threads available")
 
+    async def _hard_disconnect(self) -> None:
+        dap = self._dap
+        if dap is not None:
+            await dap.close()
+        self._dap = None
+        self._initialized = asyncio.Event()
+        self._auto_resume_pending = False
+        self.store.update(
+            state=SessionState.DISCONNECTED,
+            threads=(),
+            selected_thread_id=None,
+            frames=(),
+            selected_frame_id=None,
+            source_path=None,
+            source_line=None,
+            locals=(),
+        )
+
+    async def _on_disconnect(self, exc: BaseException) -> None:
+        detail = str(exc).strip() or exc.__class__.__name__
+        self.store.append_transcript(f"Disconnected ({detail})")
+        await self._hard_disconnect()
+
     async def _on_event(self, event: dict[str, object]) -> None:
         name = event.get("event")
         body = _body(event)
@@ -338,7 +397,12 @@ class DebugpySessionManager(SessionManager):
                 self._initialized.set()
             case "continued":
                 self.store.update(
-                    state=SessionState.RUNNING, frames=(), locals=(), selected_frame_id=None
+                    state=SessionState.RUNNING,
+                    frames=(),
+                    locals=(),
+                    selected_frame_id=None,
+                    source_path=None,
+                    source_line=None,
                 )
             case "stopped":
                 reason = body.get("reason")
@@ -357,6 +421,19 @@ class DebugpySessionManager(SessionManager):
                 )
                 if isinstance(thread_to_refresh, int):
                     await self._refresh_frames(thread_to_refresh)
+
+                if self._auto_resume_pending:
+                    self._auto_resume_pending = False
+                    snap = self.store.snapshot()
+                    has_user_frame = any(
+                        isinstance(f.path, str) and _is_user_path(f.path) for f in snap.frames
+                    )
+                    if not has_user_frame:
+                        self.store.append_transcript("Auto-resuming (launch)…")
+                        try:
+                            await self.resume()
+                        except Exception:
+                            pass
             case "output":
                 text = body.get("output")
                 category = body.get("category")
@@ -412,8 +489,17 @@ class DebugpySessionManager(SessionManager):
                 )
             )
         frames = [f for f in frames if f.id >= 0]
-        selected_frame = frames[0].id if frames else None
-        self.store.update(frames=tuple(frames), selected_frame_id=selected_frame)
+        selected = next(
+            (f for f in frames if isinstance(f.path, str) and _is_user_path(f.path)),
+            frames[0] if frames else None,
+        )
+        selected_frame = selected.id if selected is not None else None
+        self.store.update(
+            frames=tuple(frames),
+            selected_frame_id=selected_frame,
+            source_path=selected.path if selected is not None else None,
+            source_line=selected.line if selected is not None else None,
+        )
         if isinstance(selected_frame, int):
             await self._refresh_locals(selected_frame)
 
@@ -435,24 +521,9 @@ class DebugpySessionManager(SessionManager):
             return
 
         vars_resp = await dap.request("variables", {"variablesReference": locals_ref})
-        variables: list[VariableInfo] = []
-        for item in _as_list(_body(vars_resp).get("variables")):
-            if not isinstance(item, dict):
-                continue
-            name = item.get("name")
-            value = item.get("value")
-            if not isinstance(name, str) or not isinstance(value, str):
-                continue
-            vtype = item.get("type")
-            variables.append(
-                VariableInfo(
-                    name=name,
-                    value=value,
-                    type=vtype if isinstance(vtype, str) else None,
-                    variables_reference=int(item.get("variablesReference") or 0),
-                )
-            )
-        self.store.update(locals=tuple(variables))
+        self.store.update(
+            locals=tuple(_parse_variables(_as_list(_body(vars_resp).get("variables"))))
+        )
 
     async def _sync_all_breakpoints(self) -> None:
         if not self._breakpoints:
@@ -659,3 +730,14 @@ def _remote_exec_script(*, status_path: Path, host: str, port: int) -> str:
         "except Exception as exc:\n"
         "    _write('error', error=str(exc), traceback=traceback.format_exc())\n"
     )
+
+
+def _is_user_path(path: str) -> bool:
+    if path.startswith("<") and path.endswith(">"):
+        return False
+    try:
+        p = Path(path).expanduser().resolve()
+    except OSError:
+        return False
+    cwd = Path.cwd().resolve()
+    return p.is_relative_to(cwd)

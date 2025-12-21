@@ -4,11 +4,13 @@ import asyncio
 from collections.abc import Callable
 from dataclasses import dataclass
 from pathlib import Path
+from typing import ClassVar
 
 from textual import on
 from textual.app import ComposeResult
+from textual.binding import BindingType
 from textual.containers import Container
-from textual.widgets import Input, ListItem, ListView, Static
+from textual.widgets import DataTable, Input, ListItem, ListView, RichLog, Static, TextArea
 
 from yathaavat.core import (
     SESSION_MANAGER,
@@ -20,6 +22,7 @@ from yathaavat.core import (
     SessionSnapshot,
     SessionStore,
     VariableInfo,
+    VariablesManager,
 )
 
 
@@ -34,11 +37,15 @@ def _get_manager(ctx: AppContext) -> SessionManager | None:
         return None
 
 
-class TranscriptPanel(Static):
+class TranscriptPanel(Container):
     def __init__(self, *, ctx: AppContext) -> None:
-        super().__init__("", expand=True)
+        super().__init__()
         self._store = _get_store(ctx)
         self._unsubscribe: Callable[[], None] | None = None
+        self._last_len = 0
+
+    def compose(self) -> ComposeResult:
+        yield RichLog(id="transcript_log", max_lines=600, wrap=True, auto_scroll=True)
 
     def on_mount(self) -> None:
         self._unsubscribe = self._store.subscribe(self._on_snapshot)
@@ -48,8 +55,14 @@ class TranscriptPanel(Static):
             self._unsubscribe()
 
     def _on_snapshot(self, snapshot: SessionSnapshot) -> None:
-        text = "\n".join(snapshot.transcript[-250:]) or "—"
-        self.update(text)
+        log = self.query_one("#transcript_log", RichLog)
+        lines = snapshot.transcript
+        if len(lines) < self._last_len:
+            log.clear()
+            self._last_len = 0
+        for line in lines[self._last_len :]:
+            log.write(line)
+        self._last_len = len(lines)
 
 
 @dataclass(frozen=True, slots=True)
@@ -121,11 +134,51 @@ def _frame_rows(frames: tuple[FrameInfo, ...]) -> list[_FrameRow]:
     return rows
 
 
-class SourcePanel(Static):
+def _language_for_path(path: Path) -> str | None:
+    match path.suffix.lower():
+        case ".py":
+            return "python"
+        case ".toml":
+            return "toml"
+        case ".json":
+            return "json"
+        case ".yaml" | ".yml":
+            return "yaml"
+        case ".md":
+            return "markdown"
+        case _:
+            return None
+
+
+class CodeView(TextArea):
+    can_focus = False
+
+    def __init__(self) -> None:
+        super().__init__(
+            "",
+            language="python",
+            theme="monokai",
+            read_only=True,
+            soft_wrap=False,
+            show_line_numbers=True,
+            highlight_cursor_line=True,
+            show_cursor=False,
+            id="source_view",
+        )
+        self.path: str | None = None
+
+
+class SourcePanel(Container):
     def __init__(self, *, ctx: AppContext) -> None:
-        super().__init__("", expand=True)
+        super().__init__()
         self._store = _get_store(ctx)
         self._unsubscribe: Callable[[], None] | None = None
+        self._path: str | None = None
+        self._line: int | None = None
+
+    def compose(self) -> ComposeResult:
+        yield Static("", id="source_header")
+        yield CodeView()
 
     def on_mount(self) -> None:
         self._unsubscribe = self._store.subscribe(self._on_snapshot)
@@ -135,83 +188,295 @@ class SourcePanel(Static):
             self._unsubscribe()
 
     def _on_snapshot(self, snapshot: SessionSnapshot) -> None:
-        frame = _selected_frame(snapshot)
-        self.update(_render_source(frame, snapshot.breakpoints))
+        header = self.query_one("#source_header", Static)
+        editor = self.query_one("#source_view", CodeView)
 
-
-def _selected_frame(snapshot: SessionSnapshot) -> FrameInfo | None:
-    if snapshot.selected_frame_id is None:
-        return snapshot.frames[0] if snapshot.frames else None
-    for frame in snapshot.frames:
-        if frame.id == snapshot.selected_frame_id:
-            return frame
-    return snapshot.frames[0] if snapshot.frames else None
-
-
-def _render_source(frame: FrameInfo | None, breakpoints: tuple[BreakpointInfo, ...]) -> str:
-    if frame is None:
-        return "No frame selected."
-    if frame.path is None or frame.line is None:
-        return f"{frame.name}\n\n(no source information)"
-
-    path = str(Path(frame.path).expanduser().resolve())
-    p = Path(path)
-    try:
-        lines = p.read_text(encoding="utf-8", errors="replace").splitlines()
-    except OSError:
-        return f"{frame.path}:{frame.line}\n\n(unreadable source)"
-
-    line_no = frame.line
-    bp_lines = {bp.line for bp in breakpoints if bp.path == path}
-    start = max(1, line_no - 6)
-    end = min(len(lines), line_no + 6)
-    width = len(str(end))
-    out = [f"{path}:{frame.line}", ""]
-    for i in range(start, end + 1):
-        prefix = "->" if i == line_no else "  "
-        marker = "●" if i in bp_lines else " "
-        out.append(f"{marker}{prefix} {i:>{width}}  {lines[i - 1]}")
-    return "\n".join(out)
-
-
-class LocalsPanel(Static):
-    def __init__(self, *, ctx: AppContext) -> None:
-        super().__init__("", expand=True)
-        self._store = _get_store(ctx)
-        self._unsubscribe: Callable[[], None] | None = None
-
-    def on_mount(self) -> None:
-        self._unsubscribe = self._store.subscribe(self._on_snapshot)
-
-    def on_unmount(self) -> None:
-        if self._unsubscribe is not None:
-            self._unsubscribe()
-
-    def _on_snapshot(self, snapshot: SessionSnapshot) -> None:
-        if not snapshot.locals:
-            self.update("No locals.")
+        raw_path = snapshot.source_path
+        line = snapshot.source_line
+        if not raw_path or not isinstance(line, int):
+            header.update("No frame selected.")
+            editor.path = None
+            editor.show_line_numbers = False
+            editor.text = ""
+            self._path = None
+            self._line = None
             return
-        self.update(_render_locals(snapshot.locals))
+
+        resolved = str(Path(raw_path).expanduser().resolve())
+        if resolved != self._path:
+            try:
+                text = Path(resolved).read_text(encoding="utf-8", errors="replace")
+            except OSError:
+                header.update(f"{raw_path}:{line}")
+                editor.path = None
+                editor.show_line_numbers = False
+                editor.text = "(unreadable source)"
+                self._path = None
+                self._line = None
+                return
+
+            lang = _language_for_path(Path(resolved)) or "text"
+            header.update(f"{resolved}:{line}")
+            editor.language = lang
+            editor.show_line_numbers = True
+            editor.text = text
+            editor.path = resolved
+            self._path = resolved
+            self._line = None
+
+        header.update(f"{resolved}:{line}")
+        if line != self._line:
+            self._line = line
+            editor.cursor_location = (max(line - 1, 0), 0)
+            editor.scroll_to(y=max(line - 7, 0), animate=False, immediate=True)
 
 
-def _render_locals(vars: tuple[VariableInfo, ...]) -> str:
-    width = max((len(v.name) for v in vars), default=5)
-    out = []
-    for v in vars[:250]:
-        t = f": {v.type}" if v.type else ""
-        out.append(f"{v.name:<{width}}{t} = {v.value}")
-    return "\n".join(out)
+@dataclass(frozen=True, slots=True)
+class _VarNode:
+    name: str
+    value: str
+    type: str | None
+    variables_reference: int
+    depth: int
+
+
+class LocalsTable(DataTable[str]):
+    BINDINGS: ClassVar[list[BindingType]] = [
+        ("enter", "toggle_expand", "Expand"),
+        ("y", "copy_value", "Copy Value"),
+    ]
+
+    def __init__(self, *, ctx: AppContext) -> None:
+        super().__init__(
+            id="locals_table",
+            cursor_type="row",
+            zebra_stripes=True,
+            show_row_labels=False,
+            cell_padding=0,
+        )
+        self._ctx = ctx
+        self._root: tuple[VariableInfo, ...] = ()
+        self._expanded: set[int] = set()
+        self._cache: dict[int, tuple[VariableInfo, ...]] = {}
+        self._flat: list[_VarNode] = []
+        self.add_columns("Name", "Type", "Value")
+
+    def set_root(self, locals_: tuple[VariableInfo, ...]) -> None:
+        if locals_ == self._root:
+            return
+        self._root = locals_
+        self._expanded.clear()
+        self._cache.clear()
+        self._rebuild()
+
+    async def action_toggle_expand(self) -> None:
+        node = self._selected_node()
+        if node is None or node.variables_reference <= 0:
+            return
+
+        ref = node.variables_reference
+        if ref in self._expanded:
+            self._expanded.remove(ref)
+            self._rebuild()
+            return
+
+        manager = _get_manager(self._ctx)
+        if not isinstance(manager, VariablesManager):
+            self._ctx.host.notify(
+                "Variable expansion is not supported by this session.",
+                timeout=2.5,
+            )
+            return
+
+        if ref not in self._cache:
+            try:
+                self._ctx.host.notify("Loading variables…", timeout=1.0)
+                self._cache[ref] = await manager.get_variables(ref)
+            except Exception as exc:
+                self._ctx.host.notify(str(exc), timeout=2.5)
+                return
+
+        self._expanded.add(ref)
+        self._rebuild()
+
+    def action_copy_value(self) -> None:
+        node = self._selected_node()
+        if node is None:
+            return
+        self.app.copy_to_clipboard(node.value)
+        self._ctx.host.notify("Copied value.", timeout=1.2)
+
+    def _selected_node(self) -> _VarNode | None:
+        row = self.cursor_row
+        if row is None:
+            return None
+        if row < 0 or row >= len(self._flat):
+            return None
+        return self._flat[row]
+
+    def _rebuild(self) -> None:
+        self.clear(columns=False)
+        self._flat = []
+        if not self._root:
+            self.add_row("No locals.", "", "")
+            return
+
+        def add_vars(vars_: tuple[VariableInfo, ...], *, depth: int) -> None:
+            for v in vars_:
+                ref = v.variables_reference
+                arrow = " "
+                if ref > 0:
+                    arrow = "▾" if ref in self._expanded else "▸"
+                name = f"{'  ' * depth}{arrow} {v.name}"
+                vtype = v.type or ""
+                self.add_row(name, vtype, v.value)
+                self._flat.append(
+                    _VarNode(
+                        name=v.name,
+                        value=v.value,
+                        type=v.type,
+                        variables_reference=ref,
+                        depth=depth,
+                    )
+                )
+                if ref in self._expanded:
+                    children = self._cache.get(ref) or ()
+                    add_vars(children, depth=depth + 1)
+
+        add_vars(self._root, depth=0)
+
+
+class LocalsPanel(Container):
+    def __init__(self, *, ctx: AppContext) -> None:
+        super().__init__()
+        self._store = _get_store(ctx)
+        self._unsubscribe: Callable[[], None] | None = None
+        self._table = LocalsTable(ctx=ctx)
+
+    def compose(self) -> ComposeResult:
+        yield self._table
+
+    def on_mount(self) -> None:
+        self._unsubscribe = self._store.subscribe(self._on_snapshot)
+
+    def on_unmount(self) -> None:
+        if self._unsubscribe is not None:
+            self._unsubscribe()
+
+    def _on_snapshot(self, snapshot: SessionSnapshot) -> None:
+        self._table.set_root(snapshot.locals)
+
+
+class BreakpointsTable(DataTable[str]):
+    BINDINGS: ClassVar[list[BindingType]] = [
+        ("d", "delete_breakpoint", "Delete"),
+        ("enter", "jump", "Jump"),
+        ("y", "copy_location", "Copy Location"),
+    ]
+
+    def __init__(self, *, ctx: AppContext, store: SessionStore) -> None:
+        super().__init__(
+            id="breakpoints_table",
+            cursor_type="row",
+            zebra_stripes=True,
+            show_row_labels=False,
+            cell_padding=0,
+        )
+        self._ctx = ctx
+        self._store = store
+        self._rows: list[BreakpointInfo] = []
+        self.add_columns("File", "Line", "✓", "Message")
+
+    def set_breakpoints(self, breakpoints: tuple[BreakpointInfo, ...]) -> None:
+        self.clear(columns=False)
+        self._rows = list(breakpoints)
+        if not self._rows:
+            self.add_row("No breakpoints.", "", "", "")
+            return
+        for bp in self._rows:
+            p = Path(bp.path)
+            file = p.name if bp.path else "?"
+            status = "✓" if bp.verified else ("…" if bp.verified is None else "✗")
+            msg = bp.message or ""
+            self.add_row(file, str(bp.line), status, msg)
+
+    @on(DataTable.RowHighlighted)
+    def _on_row_highlighted(self, event: DataTable.RowHighlighted) -> None:
+        if event.cursor_row < 0 or event.cursor_row >= len(self._rows):
+            return
+        bp = self._rows[event.cursor_row]
+        snap = self._store.snapshot()
+        if snap.source_path == bp.path and snap.source_line == bp.line:
+            return
+        self._store.update(source_path=bp.path, source_line=bp.line)
+
+    async def action_delete_breakpoint(self) -> None:
+        bp = self._selected()
+        if bp is None:
+            return
+        manager = _get_manager(self._ctx)
+        if manager is None:
+            self._ctx.host.notify("No session.", timeout=2.0)
+            return
+        try:
+            await manager.toggle_breakpoint(bp.path, bp.line)
+        except Exception as exc:
+            self._ctx.host.notify(str(exc), timeout=2.5)
+
+    def action_jump(self) -> None:
+        bp = self._selected()
+        if bp is None:
+            return
+        self._store.update(source_path=bp.path, source_line=bp.line)
+
+    def action_copy_location(self) -> None:
+        bp = self._selected()
+        if bp is None:
+            return
+        self.app.copy_to_clipboard(f"{bp.path}:{bp.line}")
+        self._ctx.host.notify("Copied location.", timeout=1.2)
+
+    def _selected(self) -> BreakpointInfo | None:
+        row = self.cursor_row
+        if row is None or row < 0 or row >= len(self._rows):
+            return None
+        return self._rows[row]
+
+
+class BreakpointsPanel(Container):
+    def __init__(self, *, ctx: AppContext) -> None:
+        super().__init__()
+        self._ctx = ctx
+        self._store = _get_store(ctx)
+        self._unsubscribe: Callable[[], None] | None = None
+        self._table = BreakpointsTable(ctx=ctx, store=self._store)
+        self._last: tuple[BreakpointInfo, ...] = ()
+
+    def compose(self) -> ComposeResult:
+        yield self._table
+
+    def on_mount(self) -> None:
+        self._unsubscribe = self._store.subscribe(self._on_snapshot)
+
+    def on_unmount(self) -> None:
+        if self._unsubscribe is not None:
+            self._unsubscribe()
+
+    def _on_snapshot(self, snapshot: SessionSnapshot) -> None:
+        if snapshot.breakpoints == self._last:
+            return
+        self._last = snapshot.breakpoints
+        self._table.set_breakpoints(snapshot.breakpoints)
 
 
 class ConsolePanel(Container):
     def __init__(self, *, ctx: AppContext) -> None:
         super().__init__()
         self._ctx = ctx
-        self._lines: list[str] = []
         self._tasks: set[asyncio.Task[None]] = set()
 
     def compose(self) -> ComposeResult:
-        yield Static("", id="console_log", expand=True)
+        yield RichLog(id="console_log", max_lines=300, wrap=True, auto_scroll=True)
         yield Input(placeholder=">>>", id="console_input")
 
     @on(Input.Submitted, "#console_input")
@@ -238,6 +503,6 @@ class ConsolePanel(Container):
         task.add_done_callback(self._tasks.discard)
 
     def _append(self, text: str) -> None:
-        self._lines.extend(text.splitlines())
-        self._lines = self._lines[-200:]
-        self.query_one("#console_log", Static).update("\n".join(self._lines))
+        log = self.query_one("#console_log", RichLog)
+        for line in text.splitlines():
+            log.write(line)
