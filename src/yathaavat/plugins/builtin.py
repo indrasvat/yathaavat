@@ -3,6 +3,7 @@ from __future__ import annotations
 from dataclasses import dataclass
 from typing import override
 
+from yathaavat.app.breakpoint import BreakpointDialog
 from yathaavat.app.panels import (
     BreakpointsPanel,
     ConsolePanel,
@@ -186,6 +187,17 @@ class BuiltinPlugin(Plugin):
                     default_keys=("f9", "b"),
                 ),
                 handler=_toggle_breakpoint,
+            )
+        )
+        ctx.commands.register(
+            Command(
+                CommandSpec(
+                    id="breakpoint.add",
+                    title="Add Breakpoint…",
+                    summary="Toggle breakpoint by file:line (queues when disconnected).",
+                    default_keys=("ctrl+b",),
+                ),
+                handler=lambda: ctx.host.push_screen(BreakpointDialog(ctx=ctx)),
             )
         )
 

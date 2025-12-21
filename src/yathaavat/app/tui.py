@@ -124,6 +124,18 @@ class YathaavatApp(App[None]):
     #launch_title { color: #8bd5ff; height: 1; }
     #launch_input { margin-top: 1; }
     #launch_hint { margin-top: 1; color: #93a4c7; }
+
+    #bp_root {
+      width: 70%;
+      max-width: 110;
+      height: 30%;
+      border: round #2a3b52;
+      background: #0f1520;
+      padding: 1 1;
+    }
+    #bp_title { color: #8bd5ff; height: 1; }
+    #bp_input { margin-top: 1; }
+    #bp_hint { margin-top: 1; color: #93a4c7; }
     """
 
     BINDINGS: ClassVar[list[BindingType]] = [("ctrl+p", "open_palette", "Palette")]
@@ -255,6 +267,7 @@ def _help_text(ctx: AppContext) -> str:
         label("debug.continue", "continue"),
         label("debug.step_over", "next"),
         label("debug.step_in", "step"),
+        label("breakpoint.add", "add bp"),
         label("breakpoint.toggle", "breakpoint"),
         label("app.quit", "quit"),
     ]

@@ -99,6 +99,20 @@ async def _wait_for_screen_contains(session: iterm2.Session, needle: str, timeou
     raise TimeoutError(msg)
 
 
+async def _wait_for_screen_contains_any(
+    session: iterm2.Session, needles: list[str], timeout_s: float
+) -> str:
+    deadline = time.monotonic() + timeout_s
+    last = ""
+    while time.monotonic() < deadline:
+        last = await _screen_text(session)
+        if any(n in last for n in needles):
+            return last
+        await asyncio.sleep(0.25)
+    msg = f"Timed out waiting for screen to contain any of: {needles!r}"
+    raise TimeoutError(msg)
+
+
 async def _wait_for_screen_not_contains(
     session: iterm2.Session, needle: str, timeout_s: float
 ) -> str:
@@ -184,6 +198,14 @@ async def main(connection: iterm2.Connection) -> None:
         main_png = out_dir / "tui_main.png"
         _screencapture(main_png)
 
+        # Queue a breakpoint while disconnected (Ctrl+B).
+        await session.async_send_text("\x02")  # Ctrl+B
+        await _wait_for_screen_contains(session, "Add breakpoint", timeout_s=6)
+        await asyncio.sleep(0.25)
+        await session.async_send_text("examples/demo_target.py:29\r")
+        await _wait_for_screen_not_contains(session, "Add breakpoint", timeout_s=6)
+        await _wait_for_screen_contains(session, "Breakpoint queued:", timeout_s=8)
+
         # Launch demo target (Ctrl+R).
         await session.async_send_text("\x12")  # Ctrl+R
         await _wait_for_screen_contains(session, "Launch under debugpy", timeout_s=6)
@@ -191,8 +213,22 @@ async def main(connection: iterm2.Connection) -> None:
         await session.async_send_text("examples/demo_target.py\r")
         await _wait_for_screen_not_contains(session, "Launch under debugpy", timeout_s=6)
 
-        # Wait for the breakpoint to be hit.
-        await _wait_for_screen_contains(session, "PAUSED", timeout_s=25)
+        # First pause: our queued breakpoint.
+        await _wait_for_screen_contains(session, "demo_target.py:29", timeout_s=25)
+        queued_text = await _screen_text(session)
+        (out_dir / "tui_paused_queued.txt").write_text(queued_text, encoding="utf-8")
+        queued_png = out_dir / "tui_paused_queued.png"
+        _screencapture(queued_png)
+
+        # Continue to the debugpy.breakpoint() pause.
+        await session.async_send_text("\t\t")
+        await asyncio.sleep(0.1)
+        await session.async_send_text(_fn_key_sequence(5))  # F5 continue
+        await _wait_for_screen_contains_any(
+            session,
+            ["demo_target.py:30", "demo_target.py:31"],
+            timeout_s=25,
+        )
         paused_text = await _screen_text(session)
         (out_dir / "tui_paused.txt").write_text(paused_text, encoding="utf-8")
         paused_png = out_dir / "tui_paused.png"
@@ -203,20 +239,20 @@ async def main(connection: iterm2.Connection) -> None:
         await asyncio.sleep(0.25)
 
         # Toggle a breakpoint at the current line.
-        await session.async_send_text("b")
+        await session.async_send_text(_fn_key_sequence(9))  # F9 toggle breakpoint
         await _wait_for_screen_contains(session, "Breakpoints set:", timeout_s=10)
         await asyncio.sleep(0.5)
         bp_png = out_dir / "tui_breakpoint.png"
         _screencapture(bp_png)
 
         # Step over.
-        await session.async_send_text("n")
+        await session.async_send_text(_fn_key_sequence(10))  # F10 step over
         await _wait_for_screen_contains(session, "Stopped (step)", timeout_s=12)
         step_png = out_dir / "tui_step.png"
         _screencapture(step_png)
 
         # Continue and wait for demo output.
-        await session.async_send_text("c")
+        await session.async_send_text(_fn_key_sequence(5))  # F5 continue
         await _wait_for_screen_contains(session, "RUNNING", timeout_s=8)
         await _wait_for_screen_contains(session, "TOTAL", timeout_s=12)
         running_png = out_dir / "tui_running.png"
@@ -247,6 +283,7 @@ async def main(connection: iterm2.Connection) -> None:
 
         print(f"Wrote {main_png}")
         print(f"Wrote {pal_png}")
+        print(f"Wrote {queued_png}")
         print(f"Wrote {paused_png}")
         print(f"Wrote {bp_png}")
         print(f"Wrote {step_png}")

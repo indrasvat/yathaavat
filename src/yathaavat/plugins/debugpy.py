@@ -347,11 +347,35 @@ class DebugpySessionManager(SessionManager):
             raise ValueError("Invalid line number")
 
         lines = self._breakpoints.setdefault(path, set())
+        removed = line in lines
         if line in lines:
             lines.remove(line)
         else:
             lines.add(line)
+
+        if not lines:
+            # Keep the map tidy so we don't resync empty entries.
+            self._breakpoints.pop(path, None)
+
+        if self._dap is None:
+            self._set_breakpoints_offline(path, sorted(lines))
+            file = Path(path).name
+            action = "removed" if removed else "queued"
+            self.store.append_transcript(f"Breakpoint {action}: {file}:{line}")
+            return
+
         await self._set_breakpoints(path, sorted(lines))
+
+    def _set_breakpoints_offline(self, path: str, lines: list[int]) -> None:
+        # When disconnected, we still track and display breakpoints so they can be queued
+        # and applied on the next connect/launch.
+        updated = tuple(
+            BreakpointInfo(path=path, line=line, verified=None, message="queued") for line in lines
+        )
+        existing = tuple(bp for bp in self.store.snapshot().breakpoints if bp.path != path)
+        self.store.update(
+            breakpoints=tuple(sorted((*existing, *updated), key=lambda b: (b.path, b.line)))
+        )
 
     def _require_dap(self) -> DapClient:
         if self._dap is None:
