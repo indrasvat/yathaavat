@@ -338,6 +338,15 @@ class DebugpySessionManager(SessionManager):
         self.store.append_transcript(f">>> {expression}\n{result}")
         return result
 
+    async def evaluate_silent(self, expression: str) -> str:
+        dap = self._require_dap()
+        frame_id = self.store.snapshot().selected_frame_id
+        args: dict[str, object] = {"expression": expression, "context": "watch"}
+        if isinstance(frame_id, int):
+            args["frameId"] = frame_id
+        resp = await dap.request("evaluate", args)
+        return str(_body(resp).get("result") or "")
+
     async def get_variables(self, variables_reference: int) -> tuple[VariableInfo, ...]:
         if variables_reference <= 0:
             return ()

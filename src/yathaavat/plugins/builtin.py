@@ -13,6 +13,7 @@ from yathaavat.app.panels import (
     TranscriptPanel,
 )
 from yathaavat.app.source_nav import FindDialog, GotoDialog
+from yathaavat.app.watches import AddWatchDialog, WatchesPanel
 from yathaavat.core import (
     SESSION_MANAGER,
     SESSION_STORE,
@@ -258,6 +259,18 @@ class BuiltinPlugin(Plugin):
         ctx.commands.register(
             Command(
                 CommandSpec(
+                    id="watch.add",
+                    title="Add Watch…",
+                    summary="Add a watch expression (paused-only evaluation).",
+                    default_keys=("ctrl+w",),
+                ),
+                handler=lambda: ctx.host.push_screen(AddWatchDialog(ctx=ctx)),
+            )
+        )
+
+        ctx.commands.register(
+            Command(
+                CommandSpec(
                     id="breakpoint.toggle",
                     title="Toggle Breakpoint",
                     summary="Toggle breakpoint at cursor (prototype).",
@@ -300,6 +313,14 @@ class BuiltinPlugin(Plugin):
                 title="Locals",
                 slot=Slot.RIGHT,
                 factory=lambda _ctx: LocalsPanel(ctx=_ctx),
+            )
+        )
+        ctx.widgets.register(
+            WidgetContribution(
+                id="builtin.watches",
+                title="Watches",
+                slot=Slot.RIGHT,
+                factory=lambda _ctx: WatchesPanel(ctx=_ctx),
             )
         )
         ctx.widgets.register(

@@ -68,6 +68,7 @@ class YathaavatApp(App[None]):
     #source_view { height: 1fr; background: #0b0f14; }
 
     #locals_table { height: 1fr; background: #0b0f14; }
+    #watches_table { height: 1fr; background: #0b0f14; }
     #breakpoints_table { height: 1fr; background: #0b0f14; }
 
     #console_log { height: 1fr; background: #0b0f14; }
@@ -164,6 +165,22 @@ class YathaavatApp(App[None]):
     #goto_title { color: #8bd5ff; height: 1; }
     #goto_input { margin-top: 1; }
     #goto_hint { margin-top: 1; color: #93a4c7; }
+
+    #watch_root {
+      dock: bottom;
+      margin: 0 2 1 2;
+      width: 1fr;
+      max-width: 140;
+      height: 8;
+      border: round #2a3b52;
+      background: #0f1520;
+      padding: 1 1;
+    }
+    #watch_row { height: 3; }
+    #watch_title { color: #8bd5ff; width: 6; }
+    #watch_input { width: 1fr; margin: 0 1; }
+    #watch_status { color: #93a4c7; width: 8; }
+    #watch_hint { margin-top: 0; color: #93a4c7; height: 1; }
     """
 
     BINDINGS: ClassVar[list[BindingType]] = [("ctrl+p", "open_palette", "Palette")]
@@ -298,6 +315,7 @@ def _help_text(ctx: AppContext) -> str:
         label("debug.step_in", "step"),
         label("source.find", "find"),
         label("source.goto", "goto"),
+        label("watch.add", "watch"),
         label("breakpoint.add", "add bp"),
         label("breakpoint.toggle", "breakpoint"),
         label("app.quit", "quit"),

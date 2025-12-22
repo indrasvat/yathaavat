@@ -238,7 +238,7 @@ Run to cursor is a high-leverage workflow accelerator: you visually navigate to 
 
 Command:
 - `debug.run_to_cursor` (palette searchable)
-- keybinding: `Ctrl+F10` (plus optional per-user remaps)
+- keybinding: `Ctrl+F10` (global) and `Enter` (when Source is focused)
 
 Semantics:
 1) Requires a **paused** session.
@@ -264,7 +264,7 @@ Debugging often requires scanning unfamiliar code quickly. Source supports light
 - **Go to line** (`Ctrl+G`): jump to `line[:col]` in the currently open Source file.
 
 Design notes:
-- **Find** is implemented as a compact bottom overlay (modal) that keeps the Source panel visible while searching.
+- **Find** is implemented as a compact bottom overlay that keeps Source visible while searching (so you can confirm context while iterating matches).
 - Future v2 polish can add incremental search (live as-you-type), “find next/prev”, and a persistent inline search bar scoped to Source, but the default remains minimal and snappy.
 
 **Stack**
@@ -279,6 +279,7 @@ Design notes:
 **Watches**
 - watch list with last value + change indicator
 - evaluation is paused-only by default; “live watch” requires explicit opt-in and shows a warning
+- quick add (`Ctrl+W`) and simple management (delete/copy) from the Watches panel
 
 **Breakpoints**
 - list with verification state: bound/unverified/error

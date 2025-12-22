@@ -45,6 +45,14 @@ class BreakpointInfo:
 
 
 @dataclass(frozen=True, slots=True)
+class WatchInfo:
+    expression: str
+    value: str = ""
+    error: str | None = None
+    changed: bool = False
+
+
+@dataclass(frozen=True, slots=True)
 class SessionSnapshot:
     state: SessionState = SessionState.DISCONNECTED
     backend: str = ""
@@ -58,6 +66,7 @@ class SessionSnapshot:
     source_line: int | None = None
     source_col: int | None = None
     locals: tuple[VariableInfo, ...] = ()
+    watches: tuple[WatchInfo, ...] = ()
     breakpoints: tuple[BreakpointInfo, ...] = ()
     transcript: tuple[str, ...] = ()
 
@@ -143,6 +152,11 @@ class VariablesManager(SessionManager, Protocol):
 @runtime_checkable
 class RunToCursorManager(SessionManager, Protocol):
     async def run_to_cursor(self, path: str, line: int) -> None: ...
+
+
+@runtime_checkable
+class SilentEvaluateManager(SessionManager, Protocol):
+    async def evaluate_silent(self, expression: str) -> str: ...
 
 
 SESSION_STORE: ServiceKey[SessionStore] = ServiceKey("session.store")

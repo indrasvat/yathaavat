@@ -202,6 +202,21 @@ async def main(connection: iterm2.Connection) -> None:
     await tui.async_send_text("\t\t")
     await asyncio.sleep(0.25)
 
+    # Add a watch (Ctrl+W).
+    await tui.async_send_text("\x17")  # Ctrl+W
+    await _wait_for_screen_contains(tui, "Enter add", timeout_s=6)
+    await asyncio.sleep(0.2)
+    await tui.async_send_text("len(recent_jobs)\r")
+    await _wait_for_screen_contains(tui, "added", timeout_s=6)
+    (out_dir / "tui_demo_service_watch.txt").write_text(await _screen_text(tui), encoding="utf-8")
+    tui_watch_png = out_dir / "tui_demo_service_watch.png"
+    _screencapture(tui_watch_png)
+
+    # Close Watch.
+    await tui.async_send_text("\x1b")  # Escape
+    await _wait_for_screen_not_contains(tui, "Enter add", timeout_s=6)
+    await asyncio.sleep(0.2)
+
     # Find in Source (Ctrl+F). This is intentionally tested while Source is focused.
     await tui.async_send_text("\x06")  # Ctrl+F
     await _wait_for_screen_contains(tui, "Enter next", timeout_s=6)
@@ -241,6 +256,7 @@ async def main(connection: iterm2.Connection) -> None:
     print(f"Wrote {tui_main_png}")
     print(f"Wrote {tui_connected_png}")
     print(f"Wrote {tui_paused_png}")
+    print(f"Wrote {tui_watch_png}")
     print(f"Wrote {tui_find_png}")
     print(f"Wrote {tui_step_png}")
     print(f"Wrote {tui_running_png}")
