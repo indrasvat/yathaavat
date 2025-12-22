@@ -163,6 +163,7 @@ class CodeView(TextArea):
         Binding("pagedown", "cursor_page_down", show=False),
         Binding("home", "cursor_line_start", show=False),
         Binding("end", "cursor_line_end", show=False),
+        Binding("ctrl+f", "app.command('source.find')", show=False),
     ]
 
     def __init__(self) -> None:

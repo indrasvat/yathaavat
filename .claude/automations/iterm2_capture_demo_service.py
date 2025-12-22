@@ -202,6 +202,20 @@ async def main(connection: iterm2.Connection) -> None:
     await tui.async_send_text("\t\t")
     await asyncio.sleep(0.25)
 
+    # Find in Source (Ctrl+F). This is intentionally tested while Source is focused.
+    await tui.async_send_text("\x06")  # Ctrl+F
+    await _wait_for_screen_contains(tui, "Find in Source", timeout_s=6)
+    await asyncio.sleep(0.2)
+    await tui.async_send_text("debugpy\r")
+    await _wait_for_screen_contains(tui, "Match at", timeout_s=6)
+    tui_find_png = out_dir / "tui_demo_service_find.png"
+    _screencapture(tui_find_png)
+
+    # Close Find.
+    await tui.async_send_text("\x1b")  # Escape
+    await _wait_for_screen_not_contains(tui, "Find in Source", timeout_s=6)
+    await asyncio.sleep(0.2)
+
     # Step over.
     await tui.async_send_text("n")
     await _wait_for_screen_contains(tui, "Stopped (step)", timeout_s=12)
@@ -226,6 +240,7 @@ async def main(connection: iterm2.Connection) -> None:
     print(f"Wrote {tui_main_png}")
     print(f"Wrote {tui_connected_png}")
     print(f"Wrote {tui_paused_png}")
+    print(f"Wrote {tui_find_png}")
     print(f"Wrote {tui_step_png}")
     print(f"Wrote {tui_running_png}")
 
