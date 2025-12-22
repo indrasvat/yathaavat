@@ -178,19 +178,18 @@ class YathaavatApp(App[None]):
 
     #find_root {
       dock: bottom;
-      margin: 0 2 1 2;
+      margin: 0 1;
       width: 1fr;
-      max-width: 140;
-      height: 8;
+      height: 4;
       border: round #2a3b52;
       background: #0f1520;
-      padding: 1 1;
+      padding: 0 1;
     }
-    #find_row { height: 3; }
+    #find_row { height: 1; }
     #find_title { color: #8bd5ff; width: 6; }
     #find_input { width: 1fr; margin: 0 1; }
     #find_status { color: #93a4c7; width: 14; }
-    #find_hint { margin-top: 0; color: #93a4c7; height: 1; }
+    #find_hint { color: #93a4c7; height: 1; }
 
     #goto_root {
       width: 70%;
@@ -233,6 +232,7 @@ class YathaavatApp(App[None]):
         self._status_unsubscribe: Callable[[], None] | None = None
         self._zoom_mode: str | None = None
         self._last_snapshot: SessionSnapshot | None = None
+        self._root_container: Container | None = None
 
     def compose(self) -> ComposeResult:
         yield self._status
@@ -282,6 +282,7 @@ class YathaavatApp(App[None]):
 
         self._bind_status()
         self._help.set_text(_help_text(self._ctx))
+        self._root_container = self.query_one("#root", Container)
         self.call_later(self._focus_default)
 
     def on_unmount(self) -> None:
@@ -346,8 +347,23 @@ class YathaavatApp(App[None]):
     async def action_command(self, command_id: str) -> None:
         await self._ctx.commands.get(command_id).run()
 
+    def action_open_source_find(self) -> None:
+        try:
+            editor = self.query_one("#source_view")
+        except Exception:
+            self.notify("Source view not available.", timeout=2.0)
+            return
+
+        panel = getattr(editor, "parent", None)
+        open_find = getattr(panel, "open_find", None)
+        if callable(open_find):
+            open_find()
+            return
+
+        self.notify("Find is not available.", timeout=2.0)
+
     def action_toggle_zoom(self) -> None:
-        root = self.query_one("#root", Container)
+        root = self._root_container or self.query_one("#root", Container)
         current = self._zoom_mode
         if current is not None:
             root.remove_class(current)

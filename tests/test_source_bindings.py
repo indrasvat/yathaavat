@@ -8,6 +8,7 @@ from yathaavat.app.panels import CodeView
 def test_codeview_source_keybindings_override_textarea_defaults() -> None:
     expected = {
         "ctrl+f": "app.command('source.find')",
+        "/": "app.command('source.find')",
         "ctrl+g": "app.command('source.goto')",
         "enter": "app.command('debug.run_to_cursor')",
         "b": "app.command('breakpoint.toggle')",

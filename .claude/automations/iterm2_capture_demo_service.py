@@ -203,8 +203,9 @@ async def main(connection: iterm2.Connection) -> None:
     await _wait_for_screen_contains(tui, "Command Palette", timeout_s=6)
     await asyncio.sleep(0.2)
     await tui.async_send_text("zoom\r")
-    await _wait_for_screen_not_contains(tui, "Command Palette", timeout_s=6)
-    await _wait_for_screen_contains(tui, "ZOOM", timeout_s=6)
+    await _wait_for_screen_not_contains(tui, "Command Palette", timeout_s=8)
+    await asyncio.sleep(0.25)
+    await _wait_for_screen_contains(tui, "ZOOM", timeout_s=12)
     (out_dir / "tui_demo_service_zoomed.txt").write_text(await _screen_text(tui), encoding="utf-8")
     tui_zoomed_png = out_dir / "tui_demo_service_zoomed.png"
     _screencapture(tui_zoomed_png)
@@ -214,8 +215,9 @@ async def main(connection: iterm2.Connection) -> None:
     await _wait_for_screen_contains(tui, "Command Palette", timeout_s=6)
     await asyncio.sleep(0.2)
     await tui.async_send_text("zoom\r")
-    await _wait_for_screen_not_contains(tui, "Command Palette", timeout_s=6)
-    await _wait_for_screen_not_contains(tui, "ZOOM", timeout_s=6)
+    await _wait_for_screen_not_contains(tui, "Command Palette", timeout_s=8)
+    await asyncio.sleep(0.25)
+    await _wait_for_screen_not_contains(tui, "ZOOM", timeout_s=12)
     (out_dir / "tui_demo_service_unzoomed.txt").write_text(
         await _screen_text(tui), encoding="utf-8"
     )

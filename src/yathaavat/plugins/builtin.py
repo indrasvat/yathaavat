@@ -12,7 +12,7 @@ from yathaavat.app.panels import (
     StackPanel,
     TranscriptPanel,
 )
-from yathaavat.app.source_nav import FindDialog, GotoDialog
+from yathaavat.app.source_nav import GotoDialog
 from yathaavat.app.threads import ThreadsPanel
 from yathaavat.app.watches import AddWatchDialog, WatchesPanel
 from yathaavat.core import (
@@ -275,7 +275,7 @@ class BuiltinPlugin(Plugin):
                     summary="Find text in the Source panel.",
                     default_keys=("ctrl+f",),
                 ),
-                handler=lambda: ctx.host.push_screen(FindDialog(ctx=ctx)),
+                handler=host.open_source_find,
             )
         )
 

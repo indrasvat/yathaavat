@@ -14,6 +14,8 @@ class UiHost(Protocol):
 
     def toggle_zoom(self) -> None: ...
 
+    def open_source_find(self) -> None: ...
+
     def push_screen(self, screen: Screen[Any]) -> None: ...
 
     def pop_screen(self) -> None: ...
@@ -28,6 +30,9 @@ class NullUiHost(UiHost):
         return
 
     def toggle_zoom(self) -> None:
+        return
+
+    def open_source_find(self) -> None:
         return
 
     def push_screen(self, screen: Screen[Any]) -> None:

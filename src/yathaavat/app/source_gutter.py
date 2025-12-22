@@ -19,6 +19,7 @@ _BP_VERIFIED = GutterMarker("●", Style(color="#ff5c5c"))
 _BP_QUEUED = GutterMarker("◌", Style(color="#f2c94c"))
 _BP_PENDING = GutterMarker("◌", Style(color="#8bd5ff", dim=True))
 _BP_FAILED = GutterMarker("✗", Style(color="#ff5c5c"))
+EXEC_MARKER = GutterMarker("▶", Style(color="#4ade80", bold=True))
 
 
 def marker_for_breakpoint(bp: BreakpointInfo) -> GutterMarker:

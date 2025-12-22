@@ -176,7 +176,7 @@ No pill chips, no excessive padding, no decorative UI.
 - sticky view centered on current execution line when paused
 - shows breakpoint markers and current line indicator
 - optional inline value previews (paused-only, capped)
-- search within file (`/`)
+- find within file (`Ctrl+F`, `/`)
 
 #### Source: cursor model, run-to-cursor, and breakpoint gutter
 
@@ -216,6 +216,7 @@ Marker states (character + color semantics):
 - **Bound / verified**: `●` (red) — the backend confirmed the breakpoint is active.
 - **Queued / pending**: `◌` (yellow) — user requested it, but it isn’t bound *yet* (e.g., offline queue, module not loaded, or adapter not verifying).
 - **Failed / rejected**: `✗` (red) — backend rejected or couldn’t place it (message explains why).
+- **Execution indicator**: `▶` (green) — shows the paused execution line in the open file (in addition to the row highlight).
 
 Display rules:
 - Markers render only for the **currently open file** in Source.
@@ -261,11 +262,12 @@ Performance constraints:
 
 Debugging often requires scanning unfamiliar code quickly. Source supports lightweight, keyboard-first navigation:
 - **Find** (`Ctrl+F`): jump to next match (wraps around). Highlight the match selection and update the Source cursor location.
+- **Find previous** (`Shift+Enter` while Find is focused): jump to the previous match (wraps around).
 - **Go to line** (`Ctrl+G`): jump to `line[:col]` in the currently open Source file.
 
 Design notes:
 - **Find** is implemented as a compact bottom overlay that keeps Source visible while searching (so you can confirm context while iterating matches).
-- Future v2 polish can add incremental search (live as-you-type), “find next/prev”, and a persistent inline search bar scoped to Source, but the default remains minimal and snappy.
+- Future v2 polish can add incremental search (live as-you-type) and match counts/highlight-all, but the default remains minimal and snappy.
 
 **Stack**
 - thread selector (if multiple threads), surfaced as a **Threads** tab/pane

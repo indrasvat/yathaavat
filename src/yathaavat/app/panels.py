@@ -10,14 +10,21 @@ from rich.style import Style
 from textual import on
 from textual.app import ComposeResult
 from textual.binding import Binding, BindingType
-from textual.containers import Container
+from textual.containers import Container, Horizontal
+from textual.document._document import Document, Selection
 from textual.events import MouseDown
 from textual.strip import Strip
 from textual.widgets import DataTable, Input, ListItem, ListView, RichLog, Static, TextArea
 
 from yathaavat.app.breakpoint import BreakpointEditDialog
 from yathaavat.app.input_history import InputHistory
-from yathaavat.app.source_gutter import GutterMarker, apply_gutter_marker, marker_for_breakpoint
+from yathaavat.app.search import find_next_index, find_prev_index
+from yathaavat.app.source_gutter import (
+    EXEC_MARKER,
+    GutterMarker,
+    apply_gutter_marker,
+    marker_for_breakpoint,
+)
 from yathaavat.core import (
     SESSION_MANAGER,
     SESSION_STORE,
@@ -167,11 +174,13 @@ class CodeView(TextArea):
         Binding("home", "cursor_line_start", show=False),
         Binding("end", "cursor_line_end", show=False),
         Binding("ctrl+p", "app.open_palette", show=False),
+        Binding("ctrl+a", "app.command('session.attach')", show=False),
         Binding("ctrl+k", "app.command('session.connect')", show=False),
         Binding("ctrl+r", "app.command('session.launch')", show=False),
         Binding("ctrl+\\", "app.command('session.disconnect')", show=False),
         Binding("ctrl+shift+\\", "app.command('session.terminate')", show=False),
         Binding("ctrl+f", "app.command('source.find')", show=False),
+        Binding("/", "app.command('source.find')", show=False),
         Binding("ctrl+g", "app.command('source.goto')", show=False),
         Binding("ctrl+w", "app.command('watch.add')", show=False),
         Binding("ctrl+b", "app.command('breakpoint.add')", show=False),
@@ -273,11 +282,30 @@ class CodeView(TextArea):
         marker = self._markers.get(line_no)
         if marker is not None:
             strip = apply_gutter_marker(strip, gutter_width=self.gutter_width, marker=marker)
+        elif show_exec and self._exec_line == line_no:
+            strip = apply_gutter_marker(strip, gutter_width=self.gutter_width, marker=EXEC_MARKER)
 
         if show_exec and self._exec_line == line_no:
-            strip = strip.apply_style(Style(bgcolor="#1a2a40"))
+            strip = strip.apply_style(Style(bgcolor="#12324f"))
 
         return strip
+
+
+class _FindInput(Input):
+    BINDINGS: ClassVar[list[BindingType]] = [
+        Binding("escape", "close_find", show=False),
+        Binding("shift+enter", "find_prev", show=False),
+    ]
+
+    def __init__(self, *, owner: SourcePanel) -> None:
+        super().__init__(placeholder="type to search…", id="find_input")
+        self._owner = owner
+
+    def action_close_find(self) -> None:
+        self._owner._close_find()
+
+    def action_find_prev(self) -> None:
+        self._owner._find_in_source(self.value, direction="prev")
 
 
 class SourcePanel(Container):
@@ -291,17 +319,109 @@ class SourcePanel(Container):
         self._col: int | None = None
         self._syncing_cursor = False
         self._tasks: set[asyncio.Task[None]] = set()
+        self._find_open = False
 
     def compose(self) -> ComposeResult:
         yield Static("", id="source_header")
         yield CodeView()
+        yield Container(
+            Horizontal(
+                Static("Find", id="find_title"),
+                _FindInput(owner=self),
+                Static("", id="find_status"),
+                id="find_row",
+            ),
+            Static("Enter next  •  Shift+Enter prev  •  Esc close", id="find_hint"),
+            id="find_root",
+        )
 
     def on_mount(self) -> None:
         self._unsubscribe = self._store.subscribe(self._on_snapshot)
+        find_root = self.query_one("#find_root", Container)
+        find_root.styles.display = "none"
 
     def on_unmount(self) -> None:
         if self._unsubscribe is not None:
             self._unsubscribe()
+
+    def open_find(self) -> None:
+        """Open the inline Find bar for the Source panel."""
+
+        find_root = self.query_one("#find_root", Container)
+        find_input = self.query_one("#find_input", Input)
+        find_hint = self.query_one("#find_hint", Static)
+        find_status = self.query_one("#find_status", Static)
+
+        if self._find_open:
+            find_root.styles.display = "block"
+            find_input.focus()
+            find_input.action_select_all()
+            return
+
+        self._find_open = True
+        find_root.styles.display = "block"
+        find_status.update("")
+        find_hint.update("Enter next  •  Shift+Enter prev  •  Esc close")
+
+        editor = self.query_one("#source_view", CodeView)
+        selection = editor.selected_text
+        if selection and not find_input.value and "\n" not in selection:
+            find_input.value = selection[:120]
+            find_input.action_select_all()
+        find_input.focus()
+
+    def _close_find(self) -> None:
+        if not self._find_open:
+            return
+        self._find_open = False
+        find_root = self.query_one("#find_root", Container)
+        find_root.styles.display = "none"
+        self.query_one("#find_status", Static).update("")
+        self.query_one("#find_hint", Static).update("")
+        self.query_one("#source_view", CodeView).focus()
+
+    @on(Input.Submitted, "#find_input")
+    def _on_find_submit(self, event: Input.Submitted) -> None:
+        self._find_in_source(event.value, direction="next")
+
+    def _find_in_source(self, query: str, *, direction: str) -> None:
+        q = query.strip()
+        if not q:
+            return
+
+        editor = self.query_one("#source_view", CodeView)
+        text = editor.text or ""
+        if not text:
+            self._ctx.host.notify("No source text loaded.", timeout=2.0)
+            return
+
+        doc = editor.document
+        if not isinstance(doc, Document):
+            self._ctx.host.notify("Search is not available.", timeout=2.0)
+            return
+
+        start_index = doc.get_index_from_location(editor.cursor_location)
+        found = (
+            find_prev_index(text, q, start_index)
+            if direction == "prev"
+            else find_next_index(text, q, start_index)
+        )
+
+        find_hint = self.query_one("#find_hint", Static)
+        find_status = self.query_one("#find_status", Static)
+        if found is None:
+            find_hint.update("No matches  •  Esc close")
+            find_status.update("0")
+            return
+
+        start_loc = doc.get_location_from_index(found)
+        end_loc = doc.get_location_from_index(found + len(q))
+        editor.selection = Selection(start_loc, end_loc)
+        editor.cursor_location = start_loc
+        editor.scroll_to(y=max(start_loc[0] - 6, 0), animate=False, immediate=True)
+
+        find_hint.update("Enter next  •  Shift+Enter prev  •  Esc close")
+        find_status.update(f"{start_loc[0] + editor.line_number_start}:{start_loc[1] + 1}")
 
     @on(TextArea.SelectionChanged, "#source_view")
     def _on_cursor_moved(self, event: TextArea.SelectionChanged) -> None:
@@ -764,6 +884,7 @@ class _ConsoleInput(Input):
     BINDINGS: ClassVar[list[BindingType]] = [
         Binding("up", "history_prev", show=False),
         Binding("down", "history_next", show=False),
+        Binding("ctrl+f", "app.command('source.find')", show=False),
     ]
 
     def __init__(self, *, history: InputHistory) -> None:
