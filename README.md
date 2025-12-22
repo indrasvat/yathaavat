@@ -1,8 +1,20 @@
 # yathaavat
 
-Terminal-first visual debugger for **Python 3.14+** (Textual UI + debugpy/DAP).
+> *yathāvat* (Sanskrit): “as it is”, “accurately / truly” — a debugger focused on faithful, low-friction visibility.
+
+Terminal-first visual debugger for **Python 3.14+** (Textual UI + debugpy/DAP), designed for fast, keyboard-driven workflows.
+
+## What you get
+
+- **Launch / Connect / Attach**: `Ctrl+R` launch a target, `Ctrl+K` connect to `host:port`, `Ctrl+A` attach to a local process.
+- **Breakpoints**: toggle at cursor (`b`), add by `file:line` (`Ctrl+B`), queued while disconnected and applied on connect.
+- **Fast navigation**: inline Find (`Ctrl+F` or `/`), Go to line (`Ctrl+G`), Jump to execution (`Ctrl+E`), Run to cursor (`Enter`).
+- **Debugger essentials**: continue (`c`), pause (`p`), step over (`n`), step in (`s`), step out (`u`).
+- **Inspection**: stack, locals (expand/copy), watches, transcript, command palette (`Ctrl+P`).
 
 ## Quickstart
+
+Prereqs: `uv` + `python3.14`.
 
 ```bash
 make sync
@@ -10,45 +22,57 @@ make run
 ```
 
 Inside the TUI:
-- `Ctrl+R` launch a target (try `examples/demo_target.py`)
-- `Ctrl+K` connect to a debugpy server (`host:port`)
-- `Ctrl+A` attach to a local process (connects to `dap host:port` when detected; shows `safe` for Python 3.14+)
-- `b/F9` toggle breakpoint, `n/F10` step, `c/F5` continue
-- `Ctrl+P` command palette, `Ctrl+Q` quit
+- `Ctrl+R` → `examples/demo_target.py`
+- `Ctrl+P` command palette (discover everything)
+- `Ctrl+Q` quit
 
 ## Demo flows
 
-**Launch**
+### Launch (single-file)
+
 1) `make run`
 2) `Ctrl+R` → `examples/demo_target.py`
 
-**Connect**
+### Connect (debugpy server)
+
 ```bash
 YATHAAVAT_DEMO_PORT=5678 uv run --python python3.14 examples/demo_app.py
 ```
-Then in the TUI: `Ctrl+K` → `127.0.0.1:5678`
 
-**HTTP service (long-lived)**
-1) In one terminal: `make demo-service`
-2) In another terminal: `make run` → `Ctrl+K` → `127.0.0.1:5678`
+Then in the TUI: `Ctrl+K` → `127.0.0.1:5678`.
+
+### Long-lived HTTP service (realistic)
+
+1) Terminal A: `make demo-service`
+2) Terminal B: `make run` → `Ctrl+K` → `127.0.0.1:5678`
 3) Drive endpoints:
-   - `curl http://127.0.0.1:8000/health`
-   - `curl http://127.0.0.1:8000/cpu/primes?limit=200000`
-   - `curl http://127.0.0.1:8000/debug/break` (pauses only when yathaavat is connected)
+
+```bash
+curl -fsS http://127.0.0.1:8000/health
+curl -fsS 'http://127.0.0.1:8000/cpu/primes?limit=200000'
+curl -fsS 'http://127.0.0.1:8000/debug/break'   # pauses only while yathaavat is connected
+```
 
 Optional load generator:
+
 ```bash
 uv run --python python3.14 examples/demo_service_client.py --break-after 5
 ```
 
 ## Notes (macOS)
 
-- Attaching to an existing PID (either via `sys.remote_exec` or `debugpy --pid`) may require elevated privileges and/or developer entitlements; when blocked, yathaavat times out and shows actionable transcript output.
+- Attaching to an existing PID can require elevated privileges / entitlements; when blocked, yathaavat times out and shows actionable transcript output.
 - For the smoothest experience, prefer `Launch` (`Ctrl+R`) or connecting to an already-listening debugpy server (`Ctrl+K`).
 
-## Dev
+## Docs
 
-- `make check` (format/lint/typecheck/tests)
-- `make hooks` (installs pre-push hook)
-- `make iterm2` (drives the TUI in iTerm2 and captures screenshots)
-- `make iterm2-safe` (drives the attach flow; on macOS, PID attach may be blocked by OS policy)
+- `docs/DESIGN_v2.md` — current design + interaction model
+- `docs/mocks.html` — UI direction (HTML mocks)
+- `docs/research/README.md` — research index (landscape, terminal constraints, UX best practices)
+
+## Development
+
+- `make help` — list targets
+- `make check` — format/lint/typecheck/tests
+- `make hooks` — install `pre-push` hook (runs `make check`)
+- `make iterm2` / `make iterm2-demo-service` / `make iterm2-safe` — scripted iTerm2 runs + screenshots (always cleaned up)

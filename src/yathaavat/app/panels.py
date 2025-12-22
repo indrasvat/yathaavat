@@ -182,6 +182,7 @@ class CodeView(TextArea):
         Binding("ctrl+f", "app.command('source.find')", show=False),
         Binding("/", "app.command('source.find')", show=False),
         Binding("ctrl+g", "app.command('source.goto')", show=False),
+        Binding("ctrl+e", "app.command('source.jump_to_exec')", show=False),
         Binding("ctrl+w", "app.command('watch.add')", show=False),
         Binding("ctrl+b", "app.command('breakpoint.add')", show=False),
         Binding("f2", "app.command('view.zoom')", show=False),

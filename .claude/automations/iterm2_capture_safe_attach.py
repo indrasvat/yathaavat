@@ -9,16 +9,23 @@
 from __future__ import annotations
 
 import asyncio
+import contextlib
+import signal
 import subprocess
 import time
 from pathlib import Path
 
 import iterm2
+import iterm2.rpc
 from Quartz import (
     CGWindowListCopyWindowInfo,
     kCGNullWindowID,
     kCGWindowListOptionOnScreenOnly,
 )
+
+TOTAL_TIMEOUT_S = 90.0
+MIN_WINDOW_WIDTH_PX = 1400
+MIN_WINDOW_HEIGHT_PX = 900
 
 
 def _ensure_iterm2_running() -> None:
@@ -69,7 +76,10 @@ def _screencapture(path: Path) -> None:
 
 
 async def _screen_text(session: iterm2.Session) -> str:
-    screen = await session.async_get_screen_contents()
+    try:
+        screen = await session.async_get_screen_contents()
+    except iterm2.rpc.RPCException as exc:
+        raise RuntimeError(f"Failed to read iTerm2 screen buffer: {exc}") from exc
     lines = [screen.line(i).string for i in range(screen.number_of_lines)]
     return "\n".join(lines)
 
@@ -104,89 +114,133 @@ async def main(connection: iterm2.Connection) -> None:
     _ensure_iterm2_running()
 
     app = await iterm2.async_get_app(connection)
-    window = app.current_terminal_window
+    await app.async_activate(raise_all_windows=False)
+    window = await iterm2.Window.async_create(connection)
     if window is None:
-        raise RuntimeError("No active iTerm2 window found")
-
-    subprocess.run(["osascript", "-e", 'tell application "iTerm2" to activate'], check=False)
+        raise RuntimeError("Could not create iTerm2 automation window")
+    await window.async_activate()
+    try:
+        frame = await window.async_get_frame()
+        width = max(frame.size.width, MIN_WINDOW_WIDTH_PX)
+        height = max(frame.size.height, MIN_WINDOW_HEIGHT_PX)
+        if width != frame.size.width or height != frame.size.height:
+            await window.async_set_frame(
+                iterm2.util.Frame(
+                    origin=frame.origin,
+                    size=iterm2.util.Size(width=width, height=height),
+                )
+            )
+    except Exception:
+        pass
 
     root = _repo_root()
     out_dir = _artifacts_dir()
 
-    tab = await window.async_create_tab()
-    session = tab.current_session
-    await session.async_set_name("yathaavat-safe-attach")
-    await session.async_activate()
-    await tab.async_activate()
+    async def _cleanup() -> None:
+        if window is not None:
+            with contextlib.suppress(Exception):
+                await window.async_close(force=True)
 
-    await session.async_send_text(f"cd {root}\n")
-    await session.async_send_text("clear\n")
+    pid: int | None = None
+    pidfile: Path | None = None
+    session: iterm2.Session | None = None
+    try:
+        tab = await window.async_create_tab()
+        session = tab.current_session
+        if session is None:
+            raise RuntimeError("iTerm2 did not create a yathaavat session")
+        await session.async_set_name("yathaavat-safe-attach")
+        await session.async_activate()
+        await tab.async_activate()
 
-    # Start a long-running Python process in the project env so it has debugpy available.
-    pidfile = Path("/tmp") / f"yathaavat_safe_pid_{time.time_ns()}.txt"
-    code = (
-        "import os, pathlib, time; "
-        f"pathlib.Path({str(pidfile)!r}).write_text(str(os.getpid())); "
-        "time.sleep(120)"
-    )
-    await session.async_send_text(f'.venv/bin/python -c "{code}" &\n')
-    deadline = time.monotonic() + 10
-    while time.monotonic() < deadline and not pidfile.exists():
-        await asyncio.sleep(0.1)
-    if not pidfile.exists():
-        raise RuntimeError(f"Timed out waiting for pidfile {pidfile}")
-    pid = int(pidfile.read_text(encoding="utf-8").strip())
+        await session.async_send_text(f"cd {root}\n")
+        await session.async_send_text("clear\n")
 
-    await session.async_send_text("make run\n")
-    await _wait_for_screen_contains(session, "Ctrl+P palette", timeout_s=25)
+        # Start a long-running Python process in the project env so it has debugpy available.
+        pidfile = Path("/tmp") / f"yathaavat_safe_pid_{time.time_ns()}.txt"
+        code = (
+            "import os, pathlib, time; "
+            f"pathlib.Path({str(pidfile)!r}).write_text(str(os.getpid())); "
+            "time.sleep(120)"
+        )
+        await session.async_send_text(f'.venv/bin/python -c "{code}" &\n')
+        deadline = time.monotonic() + 10
+        while time.monotonic() < deadline and not pidfile.exists():
+            await asyncio.sleep(0.1)
+        if not pidfile.exists():
+            raise RuntimeError(f"Timed out waiting for pidfile {pidfile}")
+        pid = int(pidfile.read_text(encoding="utf-8").strip())
 
-    safe_png = out_dir / "tui_safe_attach.png"
-    fail_png = out_dir / "tui_safe_attach_fail.png"
-    fail_txt = out_dir / "tui_safe_attach_fail.txt"
+        await session.async_send_text("make run\n")
+        await _wait_for_screen_contains(session, "Ctrl+P palette", timeout_s=25)
 
-    # Open attach picker and safe attach to PID via Enter in the search box.
-    await session.async_send_text("\x01")  # Ctrl+A
-    await _wait_for_screen_contains(session, "Attach to Process", timeout_s=6)
-    await session.async_send_text(f"{pid}\r")
+        safe_png = out_dir / "tui_safe_attach.png"
+        fail_png = out_dir / "tui_safe_attach_fail.png"
+        fail_txt = out_dir / "tui_safe_attach_fail.txt"
 
-    # Wait for either a successful stop, or a known attach failure message.
-    screen = await _wait_for_screen_contains_any(
-        session,
-        [
-            "PAUSED",
-            "PID attach timed out",
-            "PID attach failed:",
-            "sys.remote_exec failed:",
-        ],
-        timeout_s=35,
-    )
+        # Open attach picker and safe attach to PID via Enter in the search box.
+        await session.async_send_text("\x01")  # Ctrl+A
+        await _wait_for_screen_contains(session, "Attach to Process", timeout_s=6)
+        await session.async_send_text(f"{pid}\r")
 
-    if "PAUSED" in screen:
-        _screencapture(safe_png)
-        print(f"Wrote {safe_png}")
-    else:
-        fail_text = await _screen_text(session)
-        fail_txt.write_text(fail_text, encoding="utf-8")
-        _screencapture(fail_png)
-        print(f"Wrote {fail_png}")
-        print(f"Wrote {fail_txt}")
-        print(
-            "Safe attach did not reach PAUSED; this is often expected on macOS without privileges."
+        # Wait for either a successful stop, or a known attach failure message.
+        screen = await _wait_for_screen_contains_any(
+            session,
+            [
+                "PAUSED",
+                "PID attach timed out",
+                "PID attach failed:",
+                "sys.remote_exec failed:",
+            ],
+            timeout_s=35,
         )
 
-    # Resume and quit.
-    await session.async_send_text("c")
-    await asyncio.sleep(0.6)
-    await session.async_send_text("\x11")  # Ctrl+Q
-    await asyncio.sleep(0.5)
+        if "PAUSED" in screen:
+            _screencapture(safe_png)
+            print(f"Wrote {safe_png}")
+        else:
+            fail_text = await _screen_text(session)
+            fail_txt.write_text(fail_text, encoding="utf-8")
+            _screencapture(fail_png)
+            print(f"Wrote {fail_png}")
+            print(f"Wrote {fail_txt}")
+            print(
+                "Safe attach did not reach PAUSED; this is often expected on macOS without privileges."
+            )
 
-    # Clean up the background process (best-effort).
-    await session.async_send_text(f"kill {pid} >/dev/null 2>&1 || true\n")
-    pidfile.unlink(missing_ok=True)
-    await asyncio.sleep(0.2)
+        # Resume and quit.
+        await session.async_send_text("c")
+        await asyncio.sleep(0.6)
+        await session.async_send_text("\x11")  # Ctrl+Q
+        await asyncio.sleep(0.5)
 
-    # Note: the safe attach flow may not have succeeded; screenshots/logs were already printed.
+        # Clean up the background process (best-effort).
+        await session.async_send_text(f"kill {pid} >/dev/null 2>&1 || true\n")
+        pidfile.unlink(missing_ok=True)
+        await asyncio.sleep(0.2)
+
+        # Note: the safe attach flow may not have succeeded; screenshots/logs were already printed.
+    finally:
+        if session is not None and pid is not None:
+            with contextlib.suppress(Exception):
+                await session.async_send_text(f"kill {pid} >/dev/null 2>&1 || true\n")
+        if pidfile is not None:
+            pidfile.unlink(missing_ok=True)
+        await asyncio.shield(_cleanup())
 
 
 if __name__ == "__main__":
-    iterm2.run_until_complete(main)
+    async def _run(connection: iterm2.Connection) -> None:
+        loop = asyncio.get_running_loop()
+
+        def _cancel_all() -> None:
+            for task in asyncio.all_tasks(loop):
+                task.cancel()
+
+        for sig in (signal.SIGINT, signal.SIGTERM):
+            with contextlib.suppress(NotImplementedError):
+                loop.add_signal_handler(sig, _cancel_all)
+
+        await asyncio.wait_for(main(connection), timeout=TOTAL_TIMEOUT_S)
+
+    iterm2.run_until_complete(_run)

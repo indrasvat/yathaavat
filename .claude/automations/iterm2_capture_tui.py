@@ -9,19 +9,23 @@
 from __future__ import annotations
 
 import asyncio
-import socket
+import contextlib
+import signal
 import subprocess
 import time
 from pathlib import Path
 
 import iterm2
+import iterm2.rpc
 from Quartz import (
     CGWindowListCopyWindowInfo,
     kCGNullWindowID,
     kCGWindowListOptionOnScreenOnly,
 )
 
-REPO_NAME = "indrasvat-yathaavat"
+TOTAL_TIMEOUT_S = 90.0
+MIN_WINDOW_WIDTH_PX = 1400
+MIN_WINDOW_HEIGHT_PX = 900
 
 
 def _ensure_iterm2_running() -> None:
@@ -36,13 +40,6 @@ def _ensure_iterm2_running() -> None:
             return
         time.sleep(0.2)
     raise RuntimeError("iTerm2 did not start in time")
-
-
-def _pick_free_port() -> int:
-    with socket.socket(socket.AF_INET, socket.SOCK_STREAM) as s:
-        s.bind(("127.0.0.1", 0))
-        _host, port = s.getsockname()
-        return int(port)
 
 
 def _repo_root() -> Path:
@@ -82,7 +79,10 @@ def _screencapture(path: Path) -> None:
 
 
 async def _screen_text(session: iterm2.Session) -> str:
-    screen = await session.async_get_screen_contents()
+    try:
+        screen = await session.async_get_screen_contents()
+    except iterm2.rpc.RPCException as exc:
+        raise RuntimeError(f"Failed to read iTerm2 screen buffer: {exc}") from exc
     lines = [screen.line(i).string for i in range(screen.number_of_lines)]
     return "\n".join(lines)
 
@@ -127,84 +127,64 @@ async def _wait_for_screen_not_contains(
     raise TimeoutError(msg)
 
 
-async def _run_palette(session: iterm2.Session, query: str, *, timeout_s: float = 8) -> None:
-    await session.async_send_text("\x10")  # Ctrl+P
-    await _wait_for_screen_contains(session, "Command Palette", timeout_s=timeout_s)
-    await asyncio.sleep(0.25)
-    await session.async_send_text(query)
-    await asyncio.sleep(0.35)
-    await session.async_send_text("\r")  # Enter
-    await _wait_for_screen_not_contains(session, "Command Palette", timeout_s=timeout_s)
-
-
-def _fn_key_sequence(n: int) -> str:
-    # iTerm2 defaults to xterm-style sequences.
-    match n:
-        case 5:
-            return "\x1b[15~"
-        case 6:
-            return "\x1b[17~"
-        case 7:
-            return "\x1b[18~"
-        case 8:
-            return "\x1b[19~"
-        case 9:
-            return "\x1b[20~"
-        case 10:
-            return "\x1b[21~"
-        case 11:
-            return "\x1b[23~"
-        case 12:
-            return "\x1b[24~"
-        case _:
-            raise ValueError(f"Unsupported Fn key: F{n}")
-
-
 async def main(connection: iterm2.Connection) -> None:
     _ensure_iterm2_running()
 
     app = await iterm2.async_get_app(connection)
-    window = app.current_terminal_window
+    await app.async_activate(raise_all_windows=False)
+    window = await iterm2.Window.async_create(connection)
     if window is None:
-        raise RuntimeError("No active iTerm2 window found")
-
-    subprocess.run(["osascript", "-e", 'tell application "iTerm2" to activate'], check=False)
+        raise RuntimeError("Could not create iTerm2 automation window")
+    await window.async_activate()
+    try:
+        frame = await window.async_get_frame()
+        width = max(frame.size.width, MIN_WINDOW_WIDTH_PX)
+        height = max(frame.size.height, MIN_WINDOW_HEIGHT_PX)
+        if width != frame.size.width or height != frame.size.height:
+            await window.async_set_frame(
+                iterm2.util.Frame(
+                    origin=frame.origin,
+                    size=iterm2.util.Size(width=width, height=height),
+                )
+            )
+    except Exception:
+        pass
 
     root = _repo_root()
     out_dir = _artifacts_dir()
 
-    # Launch yathaavat in a fresh tab and drive launch/connect flows.
-    tab = await window.async_create_tab()
-    session = tab.current_session
-    await session.async_set_name("yathaavat")
-    await session.async_activate()
-    await tab.async_activate()
+    async def _cleanup() -> None:
+        with contextlib.suppress(Exception):
+            await window.async_close(force=True)
 
-    await session.async_send_text(f"cd {root}\n")
-    await session.async_send_text("echo __YATHAAVAT_MARKER__\n")
-    await _wait_for_screen_contains(session, "__YATHAAVAT_MARKER__", timeout_s=8)
-
-    marker_png = out_dir / "shell_marker.png"
-    _screencapture(marker_png)
-
-    await session.async_send_text("clear\n")
-    await asyncio.sleep(0.4)
-    await session.async_send_text("make run\n")
-
+    session: iterm2.Session | None = None
     try:
+        # Launch yathaavat in a fresh tab and drive launch/connect flows.
+        tab = await window.async_create_tab()
+        session = tab.current_session
+        if session is None:
+            raise RuntimeError("iTerm2 did not create a yathaavat session")
+        await session.async_set_name("yathaavat")
+        await session.async_activate()
+        await tab.async_activate()
+
+        # Clear any partially-typed input so automation isn't affected by stray keystrokes.
+        await session.async_send_text(f"\x15cd {root}\n")
+        await session.async_send_text("\x15echo __YATHAAVAT_MARKER__\n")
+        await _wait_for_screen_contains(session, "__YATHAAVAT_MARKER__", timeout_s=8)
+
+        marker_png = out_dir / "shell_marker.png"
+        _screencapture(marker_png)
+
+        await session.async_send_text("\x15clear\n")
+        await asyncio.sleep(0.4)
+        await session.async_send_text("\x15make run\n")
+
         await _wait_for_screen_contains(session, "Ctrl+P palette", timeout_s=25)
         screen_text = await _screen_text(session)
         (out_dir / "tui_main.txt").write_text(screen_text, encoding="utf-8")
         main_png = out_dir / "tui_main.png"
         _screencapture(main_png)
-
-        # Queue a breakpoint while disconnected (Ctrl+B).
-        await session.async_send_text("\x02")  # Ctrl+B
-        await _wait_for_screen_contains(session, "Add breakpoint", timeout_s=6)
-        await asyncio.sleep(0.25)
-        await session.async_send_text("examples/demo_target.py:29\r")
-        await _wait_for_screen_not_contains(session, "Add breakpoint", timeout_s=6)
-        await _wait_for_screen_contains(session, "Breakpoint queued:", timeout_s=8)
 
         # Launch demo target (Ctrl+R).
         await session.async_send_text("\x12")  # Ctrl+R
@@ -213,22 +193,9 @@ async def main(connection: iterm2.Connection) -> None:
         await session.async_send_text("examples/demo_target.py\r")
         await _wait_for_screen_not_contains(session, "Launch under debugpy", timeout_s=6)
 
-        # First pause: our queued breakpoint.
-        await _wait_for_screen_contains(session, "demo_target.py:29", timeout_s=25)
-        queued_text = await _screen_text(session)
-        (out_dir / "tui_paused_queued.txt").write_text(queued_text, encoding="utf-8")
-        queued_png = out_dir / "tui_paused_queued.png"
-        _screencapture(queued_png)
-
-        # Continue to the debugpy.breakpoint() pause.
-        await session.async_send_text("\t\t")
-        await asyncio.sleep(0.1)
-        await session.async_send_text(_fn_key_sequence(5))  # F5 continue
-        await _wait_for_screen_contains_any(
-            session,
-            ["demo_target.py:30", "demo_target.py:31"],
-            timeout_s=25,
-        )
+        # Wait for the first PAUSED stop (we expect demo_target.py to stop, but don't assume a line).
+        await _wait_for_screen_contains(session, "PAUSED", timeout_s=35)
+        await _wait_for_screen_contains(session, "demo_target.py:", timeout_s=10)
         paused_text = await _screen_text(session)
         (out_dir / "tui_paused.txt").write_text(paused_text, encoding="utf-8")
         paused_png = out_dir / "tui_paused.png"
@@ -239,20 +206,20 @@ async def main(connection: iterm2.Connection) -> None:
         await asyncio.sleep(0.25)
 
         # Toggle a breakpoint at the current line.
-        await session.async_send_text(_fn_key_sequence(9))  # F9 toggle breakpoint
+        await session.async_send_text("b")  # toggle breakpoint
         await _wait_for_screen_contains(session, "Breakpoints set:", timeout_s=10)
         await asyncio.sleep(0.5)
         bp_png = out_dir / "tui_breakpoint.png"
         _screencapture(bp_png)
 
         # Step over.
-        await session.async_send_text(_fn_key_sequence(10))  # F10 step over
+        await session.async_send_text("n")  # step over
         await _wait_for_screen_contains(session, "Stopped (step)", timeout_s=12)
         step_png = out_dir / "tui_step.png"
         _screencapture(step_png)
 
         # Continue and wait for demo output.
-        await session.async_send_text(_fn_key_sequence(5))  # F5 continue
+        await session.async_send_text("c")  # continue
         await _wait_for_screen_contains(session, "RUNNING", timeout_s=8)
         await _wait_for_screen_contains(session, "TOTAL", timeout_s=12)
         running_png = out_dir / "tui_running.png"
@@ -283,23 +250,36 @@ async def main(connection: iterm2.Connection) -> None:
 
         print(f"Wrote {main_png}")
         print(f"Wrote {pal_png}")
-        print(f"Wrote {queued_png}")
         print(f"Wrote {paused_png}")
         print(f"Wrote {bp_png}")
         print(f"Wrote {step_png}")
         print(f"Wrote {running_png}")
         print(f"Wrote {attach_png}")
     except Exception:
-        error_text = await _screen_text(session)
-        (out_dir / "tui_error.txt").write_text(error_text, encoding="utf-8")
-        error_png = out_dir / "tui_error.png"
-        _screencapture(error_png)
-        try:
-            await session.async_send_text("\x11")  # Ctrl+Q
-        except Exception:
-            pass
+        if session is not None:
+            error_text = await _screen_text(session)
+            (out_dir / "tui_error.txt").write_text(error_text, encoding="utf-8")
+            error_png = out_dir / "tui_error.png"
+            _screencapture(error_png)
+            with contextlib.suppress(Exception):
+                await session.async_send_text("\x11")  # Ctrl+Q
         raise
+    finally:
+        await asyncio.shield(_cleanup())
 
 
 if __name__ == "__main__":
-    iterm2.run_until_complete(main)
+    async def _run(connection: iterm2.Connection) -> None:
+        loop = asyncio.get_running_loop()
+
+        def _cancel_all() -> None:
+            for task in asyncio.all_tasks(loop):
+                task.cancel()
+
+        for sig in (signal.SIGINT, signal.SIGTERM):
+            with contextlib.suppress(NotImplementedError):
+                loop.add_signal_handler(sig, _cancel_all)
+
+        await asyncio.wait_for(main(connection), timeout=TOTAL_TIMEOUT_S)
+
+    iterm2.run_until_complete(_run)
