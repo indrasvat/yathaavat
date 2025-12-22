@@ -16,6 +16,7 @@ from textual.strip import Strip
 from textual.widgets import DataTable, Input, ListItem, ListView, RichLog, Static, TextArea
 
 from yathaavat.app.breakpoint import BreakpointEditDialog
+from yathaavat.app.input_history import InputHistory
 from yathaavat.app.source_gutter import GutterMarker, apply_gutter_marker, marker_for_breakpoint
 from yathaavat.core import (
     SESSION_MANAGER,
@@ -165,8 +166,16 @@ class CodeView(TextArea):
         Binding("pagedown", "cursor_page_down", show=False),
         Binding("home", "cursor_line_start", show=False),
         Binding("end", "cursor_line_end", show=False),
+        Binding("ctrl+p", "app.open_palette", show=False),
+        Binding("ctrl+k", "app.command('session.connect')", show=False),
+        Binding("ctrl+r", "app.command('session.launch')", show=False),
+        Binding("ctrl+\\", "app.command('session.disconnect')", show=False),
+        Binding("ctrl+shift+\\", "app.command('session.terminate')", show=False),
         Binding("ctrl+f", "app.command('source.find')", show=False),
         Binding("ctrl+g", "app.command('source.goto')", show=False),
+        Binding("ctrl+w", "app.command('watch.add')", show=False),
+        Binding("ctrl+b", "app.command('breakpoint.add')", show=False),
+        Binding("f2", "app.command('view.zoom')", show=False),
         Binding("enter", "app.command('debug.run_to_cursor')", show=False),
         Binding("b", "app.command('breakpoint.toggle')", show=False),
         Binding("y", "copy_selection", show=False),
@@ -715,14 +724,16 @@ class ConsolePanel(Container):
         super().__init__()
         self._ctx = ctx
         self._tasks: set[asyncio.Task[None]] = set()
+        self._history = InputHistory()
 
     def compose(self) -> ComposeResult:
         yield RichLog(id="console_log", max_lines=300, wrap=True, auto_scroll=True)
-        yield Input(placeholder=">>>", id="console_input")
+        yield _ConsoleInput(history=self._history)
 
     @on(Input.Submitted, "#console_input")
     def _on_submit(self, event: Input.Submitted) -> None:
         expr = event.value.strip()
+        self._history.push(expr)
         event.input.value = ""
         if not expr:
             return
@@ -747,3 +758,28 @@ class ConsolePanel(Container):
         log = self.query_one("#console_log", RichLog)
         for line in text.splitlines():
             log.write(line)
+
+
+class _ConsoleInput(Input):
+    BINDINGS: ClassVar[list[BindingType]] = [
+        Binding("up", "history_prev", show=False),
+        Binding("down", "history_next", show=False),
+    ]
+
+    def __init__(self, *, history: InputHistory) -> None:
+        super().__init__(placeholder=">>>", id="console_input")
+        self._history = history
+
+    def action_history_prev(self) -> None:
+        value = self._history.prev(self.value)
+        if value is None:
+            return
+        self.value = value
+        self.cursor_position = len(self.value)
+
+    def action_history_next(self) -> None:
+        value = self._history.next()
+        if value is None:
+            return
+        self.value = value
+        self.cursor_position = len(self.value)

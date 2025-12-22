@@ -27,6 +27,13 @@ class TextualUiHost(UiHost):
             return
         self._app.exit()
 
+    def toggle_zoom(self) -> None:
+        if self._app is None:
+            return
+        action = getattr(self._app, "action_toggle_zoom", None)
+        if callable(action):
+            self._app.call_after_refresh(action)
+
     def push_screen(self, screen: Screen[object]) -> None:
         if self._app is None:
             return

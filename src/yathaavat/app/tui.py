@@ -51,6 +51,27 @@ class YathaavatApp(App[None]):
     #layout { height: 1fr; }
     #bottom { height: 12; min-height: 7; }
 
+    /* Pane zoom (maximize) */
+    #root.zoom-left #center,
+    #root.zoom-left #right,
+    #root.zoom-left #bottom { display: none; }
+
+    #root.zoom-center #left,
+    #root.zoom-center #right,
+    #root.zoom-center #bottom { display: none; }
+
+    #root.zoom-right #left,
+    #root.zoom-right #center,
+    #root.zoom-right #bottom { display: none; }
+
+    #root.zoom-bottom-left #layout { display: none; }
+    #root.zoom-bottom-left #bottom { height: 1fr; min-height: 1fr; }
+    #root.zoom-bottom-left #bottom_right { display: none; }
+
+    #root.zoom-bottom-right #layout { display: none; }
+    #root.zoom-bottom-right #bottom { height: 1fr; min-height: 1fr; }
+    #root.zoom-bottom-right #bottom_left { display: none; }
+
     .pane {
       border: tall #1f2a3a;
       background: #0e1521;
@@ -210,6 +231,8 @@ class YathaavatApp(App[None]):
         self._status = StatusLine()
         self._help = HelpLine()
         self._status_unsubscribe: Callable[[], None] | None = None
+        self._zoom_mode: str | None = None
+        self._last_snapshot: SessionSnapshot | None = None
 
     def compose(self) -> ComposeResult:
         yield self._status
@@ -259,6 +282,7 @@ class YathaavatApp(App[None]):
 
         self._bind_status()
         self._help.set_text(_help_text(self._ctx))
+        self.call_later(self._focus_default)
 
     def on_unmount(self) -> None:
         if self._status_unsubscribe is not None:
@@ -273,39 +297,74 @@ class YathaavatApp(App[None]):
             store = None
 
         if store is None:
-            self._status.set(
-                StatusSnapshot(
-                    workspace=str(Path.cwd()),
-                    state="DISCONNECTED",
-                    pid=None,
-                    python=_runtime_python(),
-                    backend="",
-                    plugin_errors=len(self._plugin_errors),
-                    message="Ctrl+P palette",
-                )
-            )
+            self._last_snapshot = None
+            self._set_status(None)
             return
 
         def _on(s: SessionSnapshot) -> None:
-            self._status.set(
-                StatusSnapshot(
-                    workspace=str(Path.cwd()),
-                    state=s.state.value,
-                    pid=s.pid,
-                    python=s.python or _runtime_python(),
-                    backend=s.backend,
-                    plugin_errors=len(self._plugin_errors),
-                    message=_status_message(s) or "Ctrl+P palette",
-                )
-            )
+            self._last_snapshot = s
+            self._set_status(s)
 
         self._status_unsubscribe = store.subscribe(_on)
+
+    def _set_status(self, snapshot: SessionSnapshot | None) -> None:
+        if snapshot is None:
+            message = "Ctrl+P palette"
+            state = "DISCONNECTED"
+            pid: int | None = None
+            py = _runtime_python()
+            backend = ""
+        else:
+            message = _status_message(snapshot) or "Ctrl+P palette"
+            state = snapshot.state.value
+            pid = snapshot.pid
+            py = snapshot.python or _runtime_python()
+            backend = snapshot.backend
+
+        zoom_pill: str | None = None
+        zoom = self._zoom_mode
+        if zoom is not None:
+            label = zoom.removeprefix("zoom-").replace("-", " ").strip()
+            zoom_pill = f"ZOOM {label}"
+
+        self._status.set(
+            StatusSnapshot(
+                workspace=str(Path.cwd()),
+                state=state,
+                pid=pid,
+                python=py,
+                backend=backend,
+                zoom=zoom_pill,
+                plugin_errors=len(self._plugin_errors),
+                message=message,
+            )
+        )
 
     def action_open_palette(self) -> None:
         self.push_screen(CommandPalette(ctx=self._ctx))
 
     async def action_command(self, command_id: str) -> None:
         await self._ctx.commands.get(command_id).run()
+
+    def action_toggle_zoom(self) -> None:
+        root = self.query_one("#root", Container)
+        current = self._zoom_mode
+        if current is not None:
+            root.remove_class(current)
+            self._zoom_mode = None
+            self._set_status(self._last_snapshot)
+            return
+
+        mode = _zoom_target_for_focus(self.focused)
+        root.add_class(mode)
+        self._zoom_mode = mode
+        self._set_status(self._last_snapshot)
+
+    def _focus_default(self) -> None:
+        try:
+            self.query_one("#source_view").focus()
+        except Exception:
+            return
 
 
 def _help_text(ctx: AppContext) -> str:
@@ -326,6 +385,7 @@ def _help_text(ctx: AppContext) -> str:
         label("session.launch", "launch"),
         label("session.disconnect", "disconnect"),
         label("session.terminate", "terminate"),
+        label("view.zoom", "zoom"),
         label("debug.continue", "continue"),
         label("debug.run_to_cursor", "run-to-cursor"),
         label("debug.step_over", "next"),
@@ -374,6 +434,23 @@ def _status_message(snapshot: SessionSnapshot) -> str:
         parts.append(snapshot.stop_reason)
 
     return "  •  ".join(parts)
+
+
+def _zoom_target_for_focus(focused: object) -> str:
+    mapping = {
+        "left": "zoom-left",
+        "center": "zoom-center",
+        "right": "zoom-right",
+        "bottom_left": "zoom-bottom-left",
+        "bottom_right": "zoom-bottom-right",
+    }
+    w = focused
+    while w is not None:
+        wid = getattr(w, "id", None)
+        if isinstance(wid, str) and wid in mapping:
+            return mapping[wid]
+        w = getattr(w, "parent", None)
+    return "zoom-center"
 
 
 def run_tui() -> None:

@@ -198,6 +198,30 @@ async def main(connection: iterm2.Connection) -> None:
     tui_paused_png = out_dir / "tui_demo_service_paused.png"
     _screencapture(tui_paused_png)
 
+    # Zoom Source pane (F2) via command palette to avoid terminal-specific function key sequences.
+    await tui.async_send_text("\x10")  # Ctrl+P
+    await _wait_for_screen_contains(tui, "Command Palette", timeout_s=6)
+    await asyncio.sleep(0.2)
+    await tui.async_send_text("zoom\r")
+    await _wait_for_screen_not_contains(tui, "Command Palette", timeout_s=6)
+    await _wait_for_screen_contains(tui, "ZOOM", timeout_s=6)
+    (out_dir / "tui_demo_service_zoomed.txt").write_text(await _screen_text(tui), encoding="utf-8")
+    tui_zoomed_png = out_dir / "tui_demo_service_zoomed.png"
+    _screencapture(tui_zoomed_png)
+
+    # Unzoom.
+    await tui.async_send_text("\x10")  # Ctrl+P
+    await _wait_for_screen_contains(tui, "Command Palette", timeout_s=6)
+    await asyncio.sleep(0.2)
+    await tui.async_send_text("zoom\r")
+    await _wait_for_screen_not_contains(tui, "Command Palette", timeout_s=6)
+    await _wait_for_screen_not_contains(tui, "ZOOM", timeout_s=6)
+    (out_dir / "tui_demo_service_unzoomed.txt").write_text(
+        await _screen_text(tui), encoding="utf-8"
+    )
+    tui_unzoomed_png = out_dir / "tui_demo_service_unzoomed.png"
+    _screencapture(tui_unzoomed_png)
+
     # Add configured breakpoints (logpoint + hit count) and verify they render in the Breakpoints pane.
     await tui.async_send_text("\x02")  # Ctrl+B
     await _wait_for_screen_contains(tui, "Add breakpoint", timeout_s=6)
@@ -304,6 +328,8 @@ async def main(connection: iterm2.Connection) -> None:
     print(f"Wrote {tui_main_png}")
     print(f"Wrote {tui_connected_png}")
     print(f"Wrote {tui_paused_png}")
+    print(f"Wrote {tui_zoomed_png}")
+    print(f"Wrote {tui_unzoomed_png}")
     print(f"Wrote {tui_bp_cfg_png}")
     print(f"Wrote {tui_watch_png}")
     print(f"Wrote {tui_find_png}")

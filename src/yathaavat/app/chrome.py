@@ -16,6 +16,7 @@ class StatusSnapshot:
     pid: int | None
     python: str
     backend: str
+    zoom: str | None = None
     message: str = ""
     plugin_errors: int = 0
 
@@ -46,6 +47,12 @@ class StatusLine(Static):
             text.append(" ")
 
         text.append_text(_pill(status.state, style=_state_style(status.state)))
+
+        if status.zoom:
+            text.append(" ")
+            text.append_text(
+                _pill(status.zoom, style=PillStyle(fg="#d6e2ff", bg="#1f2a3a", bold=True))
+            )
 
         if status.pid is not None:
             text.append(" ")

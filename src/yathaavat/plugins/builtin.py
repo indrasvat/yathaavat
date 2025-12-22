@@ -186,6 +186,18 @@ class BuiltinPlugin(Plugin):
         ctx.commands.register(
             Command(
                 CommandSpec(
+                    id="view.zoom",
+                    title="Zoom Pane",
+                    summary="Toggle maximizing the currently focused pane.",
+                    default_keys=("f2",),
+                ),
+                handler=host.toggle_zoom,
+            )
+        )
+
+        ctx.commands.register(
+            Command(
+                CommandSpec(
                     id="debug.continue",
                     title="Continue",
                     summary="Resume execution (prototype).",

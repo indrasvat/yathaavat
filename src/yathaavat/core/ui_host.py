@@ -12,6 +12,8 @@ class UiHost(Protocol):
 
     def exit(self) -> None: ...
 
+    def toggle_zoom(self) -> None: ...
+
     def push_screen(self, screen: Screen[Any]) -> None: ...
 
     def pop_screen(self) -> None: ...
@@ -23,6 +25,9 @@ class NullUiHost(UiHost):
         return
 
     def exit(self) -> None:
+        return
+
+    def toggle_zoom(self) -> None:
         return
 
     def push_screen(self, screen: Screen[Any]) -> None:
