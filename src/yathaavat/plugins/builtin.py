@@ -13,6 +13,7 @@ from yathaavat.app.panels import (
     TranscriptPanel,
 )
 from yathaavat.app.source_nav import FindDialog, GotoDialog
+from yathaavat.app.threads import ThreadsPanel
 from yathaavat.app.watches import AddWatchDialog, WatchesPanel
 from yathaavat.core import (
     SESSION_MANAGER,
@@ -297,6 +298,14 @@ class BuiltinPlugin(Plugin):
                 title="Stack",
                 slot=Slot.LEFT,
                 factory=lambda _ctx: StackPanel(ctx=_ctx),
+            )
+        )
+        ctx.widgets.register(
+            WidgetContribution(
+                id="builtin.threads",
+                title="Threads",
+                slot=Slot.LEFT,
+                factory=lambda _ctx: ThreadsPanel(ctx=_ctx),
             )
         )
         ctx.widgets.register(

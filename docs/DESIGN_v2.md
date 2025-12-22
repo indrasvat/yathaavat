@@ -268,7 +268,7 @@ Design notes:
 - Future v2 polish can add incremental search (live as-you-type), “find next/prev”, and a persistent inline search bar scoped to Source, but the default remains minimal and snappy.
 
 **Stack**
-- thread selector (if multiple threads)
+- thread selector (if multiple threads), surfaced as a **Threads** tab/pane
 - frames list with file:line + function + locals summary preview
 - frame pinning (keep active frame while browsing other frames)
 

@@ -159,5 +159,10 @@ class SilentEvaluateManager(SessionManager, Protocol):
     async def evaluate_silent(self, expression: str) -> str: ...
 
 
+@runtime_checkable
+class ThreadSelectionManager(SessionManager, Protocol):
+    async def select_thread(self, thread_id: int) -> None: ...
+
+
 SESSION_STORE: ServiceKey[SessionStore] = ServiceKey("session.store")
 SESSION_MANAGER: ServiceKey[SessionManager] = ServiceKey("session.manager")

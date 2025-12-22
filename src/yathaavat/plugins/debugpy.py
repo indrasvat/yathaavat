@@ -327,6 +327,19 @@ class DebugpySessionManager(SessionManager):
         )
         await self._refresh_locals(frame_id)
 
+    async def select_thread(self, thread_id: int) -> None:
+        snap = self.store.snapshot()
+        if snap.state != SessionState.PAUSED:
+            raise RuntimeError("Thread selection requires PAUSED state")
+        if not any(t.id == thread_id for t in snap.threads):
+            raise ValueError(f"Unknown thread: {thread_id}")
+
+        name = next((t.name for t in snap.threads if t.id == thread_id), "")
+        label = f"{thread_id}" if not name else f"{thread_id} ({name})"
+        self.store.append_transcript(f"Selecting thread {label}…")
+        self.store.update(selected_thread_id=thread_id)
+        await self._refresh_frames(thread_id)
+
     async def evaluate(self, expression: str) -> str:
         dap = self._require_dap()
         frame_id = self.store.snapshot().selected_frame_id
