@@ -265,6 +265,7 @@ def _help_text(ctx: AppContext) -> str:
         label("session.disconnect", "disconnect"),
         label("session.terminate", "terminate"),
         label("debug.continue", "continue"),
+        label("debug.run_to_cursor", "run-to-cursor"),
         label("debug.step_over", "next"),
         label("debug.step_in", "step"),
         label("breakpoint.add", "add bp"),

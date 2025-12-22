@@ -19,8 +19,10 @@ from yathaavat.core import (
     Command,
     CommandSpec,
     Plugin,
+    RunToCursorManager,
     SessionManager,
     SessionSnapshot,
+    SessionState,
     Slot,
     WidgetContribution,
 )
@@ -118,6 +120,32 @@ class BuiltinPlugin(Plugin):
             except Exception as exc:
                 host.notify(str(exc), timeout=2.5)
 
+        async def _run_to_cursor() -> None:
+            session = _session(ctx)
+            if session is None:
+                host.notify("run to cursor (prototype)")
+                return
+
+            snap = _snapshot(ctx)
+            if snap.state != SessionState.PAUSED:
+                host.notify("Run to cursor requires PAUSED state.", timeout=2.0)
+                return
+
+            path = snap.source_path
+            line = snap.source_line
+            if not path or not isinstance(line, int):
+                host.notify("No source location selected.", timeout=2.0)
+                return
+
+            if not isinstance(session, RunToCursorManager):
+                host.notify("Run to cursor is not supported by this backend.", timeout=2.0)
+                return
+
+            try:
+                await session.run_to_cursor(path, line)
+            except Exception as exc:
+                host.notify(str(exc), timeout=2.5)
+
         ctx.commands.register(
             Command(
                 CommandSpec(
@@ -175,6 +203,18 @@ class BuiltinPlugin(Plugin):
                     default_keys=("f11", "s"),
                 ),
                 handler=_step_in,
+            )
+        )
+
+        ctx.commands.register(
+            Command(
+                CommandSpec(
+                    id="debug.run_to_cursor",
+                    title="Run to Cursor",
+                    summary="Continue until the source cursor location is reached.",
+                    default_keys=("ctrl+f10",),
+                ),
+                handler=_run_to_cursor,
             )
         )
 

@@ -139,5 +139,10 @@ class VariablesManager(SessionManager, Protocol):
     async def get_variables(self, variables_reference: int) -> tuple[VariableInfo, ...]: ...
 
 
+@runtime_checkable
+class RunToCursorManager(SessionManager, Protocol):
+    async def run_to_cursor(self, path: str, line: int) -> None: ...
+
+
 SESSION_STORE: ServiceKey[SessionStore] = ServiceKey("session.store")
 SESSION_MANAGER: ServiceKey[SessionManager] = ServiceKey("session.manager")

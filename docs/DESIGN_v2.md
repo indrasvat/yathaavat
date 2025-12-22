@@ -178,6 +178,75 @@ No pill chips, no excessive padding, no decorative UI.
 - optional inline value previews (paused-only, capped)
 - search within file (`/`)
 
+#### Source: cursor model, run-to-cursor, and breakpoint gutter
+
+The Source panel is the debugger’s “home”. It must be:
+- **fast** (no UI stalls while rendering),
+- **predictable** (cursor, selection, and execution line are never ambiguous),
+- **actionable** (the next step is always one key away).
+
+##### Cursor vs execution line (two different concepts)
+
+We intentionally separate:
+- **Execution line**: where the program is currently stopped (selected frame’s file:line).
+- **Source cursor**: where the user is pointing inside Source (for “toggle breakpoint”, “run to cursor”, copy, search, etc.).
+
+Rules:
+- When the debugger *stops*, Source scrolls to the execution line and moves the cursor there.
+- The user may move the cursor away (keyboard or mouse) without changing the active frame.
+- Locals/Watches/Eval always use the **active frame** (not the Source cursor), so browsing Source never changes evaluation context.
+
+This avoids the common “I scrolled and now my locals changed” confusion.
+
+##### Breakpoint gutter markers (instant visual clarity)
+
+We show breakpoint state **in the line-number gutter**, IDE-style, without widening the layout.
+
+Marker states (character + color semantics):
+- **Bound / verified**: `●` (red) — the backend confirmed the breakpoint is active.
+- **Queued / pending**: `◌` (yellow) — user requested it, but it isn’t bound *yet* (e.g., offline queue, module not loaded, or adapter not verifying).
+- **Failed / rejected**: `✗` (red) — backend rejected or couldn’t place it (message explains why).
+
+Display rules:
+- Markers render only for the **currently open file** in Source.
+- Marker rendering is lightweight and must not invalidate syntax highlighting caches unnecessarily.
+- If terminal capabilities are limited (no unicode / no color), markers degrade to ASCII (`o`, `?`, `x`) and high-contrast monochrome.
+
+##### Mouse (optional) and keyboard (primary)
+
+Keyboard remains primary:
+- `F9` / `b`: toggle breakpoint at cursor.
+- `Ctrl+B`: add/toggle breakpoint by `path:line` (works even while disconnected; queues).
+
+Mouse is an optional convenience where available:
+- Click on the gutter toggles the breakpoint on that line (same semantics as `F9`).
+- Mouse support must be best-effort; if a terminal doesn’t report mouse events reliably, nothing breaks.
+
+##### Run to Cursor (the “fast loop” win)
+
+Run to cursor is a high-leverage workflow accelerator: you visually navigate to a line and “continue until here” without manually adding/removing breakpoints.
+
+Command:
+- `debug.run_to_cursor` (palette searchable)
+- keybinding: `Ctrl+F10` (plus optional per-user remaps)
+
+Semantics:
+1) Requires a **paused** session.
+2) Targets the current Source cursor’s `file:line`.
+3) Implements “run to cursor” via a **temporary breakpoint**:
+   - If the user already has a breakpoint on that line, yathaavat does **not** modify it.
+   - Otherwise yathaavat adds a breakpoint and marks it “temporary” (implementation detail; UX can surface it later).
+4) Resumes execution.
+5) When the debuggee stops at the target line, yathaavat removes the temporary breakpoint (if it created it).
+
+Important behavior notes:
+- If execution stops at another breakpoint first, “run to cursor” remains pending (the temporary breakpoint stays armed). This matches common debugger behavior and keeps the model simple and reliable.
+- A later v2 polish can add “ignore other breakpoints while running-to-cursor” as an opt-in mode, but the default should respect user breakpoints.
+
+Performance constraints:
+- Adding/removing the temporary breakpoint must be O(1) on the UI thread; DAP calls happen off-thread/async.
+- No “wait forever”: UI must remain responsive even if the target line is never reached (infinite loop, different code path, etc.).
+
 **Stack**
 - thread selector (if multiple threads)
 - frames list with file:line + function + locals summary preview
@@ -449,4 +518,3 @@ Research reference:
 ## Appendix: Research map
 
 See `docs/research/README.md` for the full set of notes that informed this redesign.
-

@@ -79,6 +79,8 @@ class DebugpySessionManager(SessionManager):
     _dap: DapClient | None = None
     _initialized: asyncio.Event = field(default_factory=asyncio.Event)
     _breakpoints: dict[str, set[int]] = field(default_factory=dict)
+    _run_to_cursor_target: tuple[str, int] | None = None
+    _run_to_cursor_added: bool = False
     _launched: asyncio.subprocess.Process | None = None
     _launch_output_task: asyncio.Task[None] | None = None
     _capture_launch_output: bool = False
@@ -366,6 +368,26 @@ class DebugpySessionManager(SessionManager):
 
         await self._set_breakpoints(path, sorted(lines))
 
+    async def run_to_cursor(self, path: str, line: int) -> None:
+        if self._dap is None:
+            raise RuntimeError("No active debug session")
+
+        path = str(Path(path).expanduser().resolve())
+        if line <= 0:
+            raise ValueError("Invalid line number")
+
+        lines = self._breakpoints.setdefault(path, set())
+        already = line in lines
+        if not already:
+            lines.add(line)
+            await self._set_breakpoints(path, sorted(lines))
+
+        self._run_to_cursor_target = (path, line)
+        self._run_to_cursor_added = not already
+        note = " (existing breakpoint)" if already else " (temporary breakpoint armed)"
+        self.store.append_transcript(f"Run to cursor: {Path(path).name}:{line}{note}")
+        await self.resume()
+
     def _set_breakpoints_offline(self, path: str, lines: list[int]) -> None:
         # When disconnected, we still track and display breakpoints so they can be queued
         # and applied on the next connect/launch.
@@ -397,6 +419,8 @@ class DebugpySessionManager(SessionManager):
         self._dap = None
         self._initialized = asyncio.Event()
         self._auto_resume_pending = False
+        self._run_to_cursor_target = None
+        self._run_to_cursor_added = False
         self.store.update(
             state=SessionState.DISCONNECTED,
             threads=(),
@@ -445,6 +469,7 @@ class DebugpySessionManager(SessionManager):
                 )
                 if isinstance(thread_to_refresh, int):
                     await self._refresh_frames(thread_to_refresh)
+                    await self._run_to_cursor_maybe_complete()
 
                 if self._auto_resume_pending:
                     self._auto_resume_pending = False
@@ -470,6 +495,38 @@ class DebugpySessionManager(SessionManager):
                 await self.disconnect()
             case _:
                 return
+
+    async def _run_to_cursor_maybe_complete(self) -> None:
+        target = self._run_to_cursor_target
+        if target is None:
+            return
+        target_path, target_line = target
+        snap = self.store.snapshot()
+        if (
+            snap.state != SessionState.PAUSED
+            or snap.source_path != target_path
+            or snap.source_line != target_line
+        ):
+            return
+
+        self._run_to_cursor_target = None
+        added = self._run_to_cursor_added
+        self._run_to_cursor_added = False
+        if added:
+            await self._clear_breakpoint_line(target_path, target_line)
+        self.store.append_transcript(
+            f"Run to cursor reached: {Path(target_path).name}:{target_line}"
+        )
+
+    async def _clear_breakpoint_line(self, path: str, line: int) -> None:
+        lines = self._breakpoints.get(path)
+        if not lines or line not in lines:
+            return
+        lines.remove(line)
+        remaining = sorted(lines)
+        if not remaining:
+            self._breakpoints.pop(path, None)
+        await self._set_breakpoints(path, remaining)
 
     async def _refresh_threads(self) -> None:
         dap = self._require_dap()

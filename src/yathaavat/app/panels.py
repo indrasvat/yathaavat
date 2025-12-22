@@ -8,10 +8,12 @@ from typing import ClassVar
 
 from textual import on
 from textual.app import ComposeResult
-from textual.binding import BindingType
+from textual.binding import Binding, BindingType
 from textual.containers import Container
+from textual.strip import Strip
 from textual.widgets import DataTable, Input, ListItem, ListView, RichLog, Static, TextArea
 
+from yathaavat.app.source_gutter import GutterMarker, apply_gutter_marker, marker_for_breakpoint
 from yathaavat.core import (
     SESSION_MANAGER,
     SESSION_STORE,
@@ -151,7 +153,16 @@ def _language_for_path(path: Path) -> str | None:
 
 
 class CodeView(TextArea):
-    can_focus = False
+    BINDINGS: ClassVar[list[BindingType]] = [
+        Binding("up", "cursor_up", show=False),
+        Binding("down", "cursor_down", show=False),
+        Binding("left", "cursor_left", show=False),
+        Binding("right", "cursor_right", show=False),
+        Binding("pageup", "cursor_page_up", show=False),
+        Binding("pagedown", "cursor_page_down", show=False),
+        Binding("home", "cursor_line_start", show=False),
+        Binding("end", "cursor_line_end", show=False),
+    ]
 
     def __init__(self) -> None:
         super().__init__(
@@ -166,6 +177,42 @@ class CodeView(TextArea):
             id="source_view",
         )
         self.path: str | None = None
+        self._markers: dict[int, GutterMarker] = {}
+
+    def set_breakpoints(self, breakpoints: tuple[BreakpointInfo, ...]) -> None:
+        markers = {bp.line: marker_for_breakpoint(bp) for bp in breakpoints}
+        if markers == self._markers:
+            return
+        self._markers = markers
+        self.refresh()
+
+    def render_line(self, y: int) -> Strip:
+        strip = super().render_line(y)
+        if not self.show_line_numbers or not self._markers:
+            return strip
+
+        scroll_x, scroll_y = self.scroll_offset
+        _ = scroll_x
+        absolute_y = int(scroll_y) + y
+        wrapped_document = self.wrapped_document
+        if absolute_y < 0 or absolute_y >= wrapped_document.height:
+            return strip
+
+        try:
+            line_info = wrapped_document._offset_to_line_info[absolute_y]
+        except IndexError:
+            return strip
+        if line_info is None:
+            return strip
+        line_index, section_offset = line_info
+        if section_offset != 0:
+            return strip
+
+        line_no = int(line_index) + self.line_number_start
+        marker = self._markers.get(line_no)
+        if marker is None:
+            return strip
+        return apply_gutter_marker(strip, gutter_width=self.gutter_width, marker=marker)
 
 
 class SourcePanel(Container):
@@ -175,6 +222,7 @@ class SourcePanel(Container):
         self._unsubscribe: Callable[[], None] | None = None
         self._path: str | None = None
         self._line: int | None = None
+        self._syncing_cursor = False
 
     def compose(self) -> ComposeResult:
         yield Static("", id="source_header")
@@ -187,48 +235,72 @@ class SourcePanel(Container):
         if self._unsubscribe is not None:
             self._unsubscribe()
 
+    @on(TextArea.SelectionChanged, "#source_view")
+    def _on_cursor_moved(self, event: TextArea.SelectionChanged) -> None:
+        if self._syncing_cursor:
+            return
+        editor = event.text_area
+        if not isinstance(editor, CodeView):
+            return
+        if editor.path is None:
+            return
+        row, _col = editor.cursor_location
+        line = row + editor.line_number_start
+        snap = self._store.snapshot()
+        if snap.source_path == editor.path and snap.source_line == line:
+            return
+        self._store.update(source_path=editor.path, source_line=line)
+
     def _on_snapshot(self, snapshot: SessionSnapshot) -> None:
         header = self.query_one("#source_header", Static)
         editor = self.query_one("#source_view", CodeView)
 
-        raw_path = snapshot.source_path
-        line = snapshot.source_line
-        if not raw_path or not isinstance(line, int):
-            header.update("No frame selected.")
-            editor.path = None
-            editor.show_line_numbers = False
-            editor.text = ""
-            self._path = None
-            self._line = None
-            return
-
-        resolved = str(Path(raw_path).expanduser().resolve())
-        if resolved != self._path:
-            try:
-                text = Path(resolved).read_text(encoding="utf-8", errors="replace")
-            except OSError:
-                header.update(f"{raw_path}:{line}")
+        self._syncing_cursor = True
+        try:
+            raw_path = snapshot.source_path
+            line = snapshot.source_line
+            if not raw_path or not isinstance(line, int):
+                header.update("No frame selected.")
                 editor.path = None
                 editor.show_line_numbers = False
-                editor.text = "(unreadable source)"
+                editor.text = ""
+                editor.set_breakpoints(())
                 self._path = None
                 self._line = None
                 return
 
-            lang = _language_for_path(Path(resolved)) or "text"
-            header.update(f"{resolved}:{line}")
-            editor.language = lang
-            editor.show_line_numbers = True
-            editor.text = text
-            editor.path = resolved
-            self._path = resolved
-            self._line = None
+            resolved = str(Path(raw_path).expanduser().resolve())
+            if resolved != self._path:
+                try:
+                    text = Path(resolved).read_text(encoding="utf-8", errors="replace")
+                except OSError:
+                    header.update(f"{raw_path}:{line}")
+                    editor.path = None
+                    editor.show_line_numbers = False
+                    editor.text = "(unreadable source)"
+                    editor.set_breakpoints(())
+                    self._path = None
+                    self._line = None
+                    return
 
-        header.update(f"{resolved}:{line}")
-        if line != self._line:
-            self._line = line
-            editor.cursor_location = (max(line - 1, 0), 0)
-            editor.scroll_to(y=max(line - 7, 0), animate=False, immediate=True)
+                lang = _language_for_path(Path(resolved)) or "text"
+                header.update(f"{resolved}:{line}")
+                editor.language = lang
+                editor.show_line_numbers = True
+                editor.text = text
+                editor.path = resolved
+                self._path = resolved
+                self._line = None
+
+            editor.set_breakpoints(tuple(bp for bp in snapshot.breakpoints if bp.path == resolved))
+
+            header.update(f"{resolved}:{line}")
+            if line != self._line:
+                self._line = line
+                editor.cursor_location = (max(line - 1, 0), 0)
+                editor.scroll_to(y=max(line - 7, 0), animate=False, immediate=True)
+        finally:
+            self._syncing_cursor = False
 
 
 @dataclass(frozen=True, slots=True)
