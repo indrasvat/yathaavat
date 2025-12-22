@@ -79,6 +79,17 @@ class _BreakpointConfig:
     log_message: str | None = None
 
 
+def _cfg_weight(cfg: _BreakpointConfig) -> int:
+    weight = 0
+    if cfg.condition:
+        weight += 1
+    if cfg.hit_condition:
+        weight += 1
+    if cfg.log_message:
+        weight += 1
+    return weight
+
+
 @dataclass(slots=True)
 class DebugpySessionManager(SessionManager):
     store: SessionStore
@@ -742,27 +753,78 @@ class DebugpySessionManager(SessionManager):
             },
         )
         updated: list[BreakpointInfo] = []
-        for item in _as_list(_body(resp).get("breakpoints")):
-            if not isinstance(item, dict):
-                continue
-            raw_line = item.get("line")
-            if not isinstance(raw_line, int):
-                continue
-            line = raw_line
-            verified = item.get("verified")
-            message = item.get("message")
-            cfg = cfgs.get(line) or _BreakpointConfig()
+        response_bps = _as_list(_body(resp).get("breakpoints"))
+        line_map: dict[int, int] = {}
+        for i, requested_line in enumerate(lines):
+            item: dict[object, object] | None = None
+            if i < len(response_bps):
+                entry = response_bps[i]
+                if isinstance(entry, dict):
+                    item = entry
+            actual_line = requested_line
+            verified: bool | None = None
+            message: str | None = None
+            if item is not None:
+                raw_line = item.get("line")
+                if isinstance(raw_line, int) and raw_line > 0:
+                    actual_line = raw_line
+                raw_verified = item.get("verified")
+                if isinstance(raw_verified, bool):
+                    verified = raw_verified
+                raw_message = item.get("message")
+                if isinstance(raw_message, str):
+                    message = raw_message
+
+            cfg = cfgs.get(requested_line) or _BreakpointConfig()
             updated.append(
                 BreakpointInfo(
                     path=path,
-                    line=line,
+                    line=actual_line,
                     condition=cfg.condition,
                     hit_condition=cfg.hit_condition,
                     log_message=cfg.log_message,
-                    verified=verified if isinstance(verified, bool) else None,
-                    message=message if isinstance(message, str) else None,
+                    verified=verified,
+                    message=message,
                 )
             )
+            line_map[requested_line] = actual_line
+
+        if line_map:
+            # Normalise local breakpoint keys to the actual adapter-resolved line numbers
+            # to avoid duplicates (e.g. when a requested blank line moves to the next
+            # executable statement). This keeps gutter toggles aligned with what the
+            # user sees.
+            configs = self._breakpoints.get(path)
+            if configs is not None and any(req != actual for req, actual in line_map.items()):
+                normalised: dict[int, _BreakpointConfig] = {}
+                for req, actual in line_map.items():
+                    req_cfg = configs.get(req)
+                    if req_cfg is None:
+                        continue
+                    existing_cfg = normalised.get(actual)
+                    if existing_cfg is None or _cfg_weight(req_cfg) >= _cfg_weight(existing_cfg):
+                        normalised[actual] = req_cfg
+                # Preserve any configs that were not part of this setBreakpoints call.
+                for k, v in configs.items():
+                    if k not in line_map:
+                        normalised.setdefault(k, v)
+                if normalised:
+                    self._breakpoints[path] = normalised
+                else:
+                    self._breakpoints.pop(path, None)
+
+                # If a pending run-to-cursor target moved, track the adapter-resolved line.
+                target = self._run_to_cursor_target
+                if target is not None and target[0] == path and target[1] in line_map:
+                    self._run_to_cursor_target = (path, line_map[target[1]])
+
+                # If the current Source cursor is on the requested line, keep it aligned
+                # with the adapter-resolved breakpoint location.
+                snap = self.store.snapshot()
+                if snap.source_path == path and isinstance(snap.source_line, int):
+                    new_line = line_map.get(snap.source_line)
+                    if isinstance(new_line, int) and new_line != snap.source_line:
+                        self.store.update(source_line=new_line, source_col=snap.source_col or 1)
         existing = tuple(bp for bp in self.store.snapshot().breakpoints if bp.path != path)
         self.store.update(
             breakpoints=tuple(sorted((*existing, *updated), key=lambda b: (b.path, b.line)))
