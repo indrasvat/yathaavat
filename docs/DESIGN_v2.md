@@ -168,6 +168,7 @@ No pill chips, no excessive padding, no decorative UI.
 
 **Top status line** (single line):
 - workspace, session name, state (RUNNING/PAUSED), pid, python version, backend, active thread/frame summary.
+- when paused, message shows the **execution location** (`file.py:line`) and optionally `src …` if the Source cursor is elsewhere.
 - transient status text: “Attaching… waiting for safe point (press `!` to nudge)” or “Breakpoint pending (module not loaded)”.
 
 **Bottom help line** (single line):
@@ -198,6 +199,7 @@ Rules:
 - When the debugger *stops*, Source scrolls to the execution line and moves the cursor there.
 - The user may move the cursor away (keyboard or mouse) without changing the active frame.
 - Locals/Watches/Eval always use the **active frame** (not the Source cursor), so browsing Source never changes evaluation context.
+- `Ctrl+E` jumps Source back to the execution line (quick “where am I?” recenter).
 
 This avoids the common “I scrolled and now my locals changed” confusion.
 

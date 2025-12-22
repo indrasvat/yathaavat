@@ -291,6 +291,37 @@ class BuiltinPlugin(Plugin):
             )
         )
 
+        def _jump_to_exec() -> None:
+            snap = ctx.services.get(SESSION_STORE).snapshot()
+            if snap.state != SessionState.PAUSED:
+                ctx.host.notify("Jump to execution requires PAUSED state.", timeout=2.0)
+                return
+
+            frames = snap.frames
+            frame_id = snap.selected_frame_id or (frames[0].id if frames else None)
+            frame = next((f for f in frames if f.id == frame_id), None)
+            if frame is None or not frame.path or not isinstance(frame.line, int):
+                ctx.host.notify("No execution frame.", timeout=2.0)
+                return
+
+            ctx.services.get(SESSION_STORE).update(
+                source_path=frame.path,
+                source_line=frame.line,
+                source_col=1,
+            )
+
+        ctx.commands.register(
+            Command(
+                CommandSpec(
+                    id="source.jump_to_exec",
+                    title="Jump to Execution",
+                    summary="Recenter Source on the current execution line.",
+                    default_keys=("ctrl+e",),
+                ),
+                handler=_jump_to_exec,
+            )
+        )
+
         ctx.commands.register(
             Command(
                 CommandSpec(

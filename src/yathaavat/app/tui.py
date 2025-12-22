@@ -483,6 +483,7 @@ def _help_text(ctx: AppContext) -> str:
         label("debug.step_over", "next"),
         label("debug.step_in", "step"),
         label("debug.step_out", "out"),
+        label("source.jump_to_exec", "exec"),
         label("source.find", "find"),
         label("source.goto", "goto"),
         label("watch.add", "watch"),
@@ -504,19 +505,33 @@ def _status_message(snapshot: SessionSnapshot) -> str:
 
     parts: list[str] = []
 
-    path = snapshot.source_path
-    line = snapshot.source_line
-    col = snapshot.source_col
-    if isinstance(path, str) and isinstance(line, int):
-        loc = f"{Path(path).name}:{line}"
+    def fmt_loc(path: str, line: int, col: int | None = None) -> str:
+        try:
+            name = Path(path).name
+        except Exception:
+            name = path
+        loc = f"{name}:{line}"
         if isinstance(col, int):
             loc = f"{loc}:{col}"
-        parts.append(loc)
+        return loc
 
-    if isinstance(snapshot.selected_frame_id, int):
-        frame = next((f for f in snapshot.frames if f.id == snapshot.selected_frame_id), None)
-        if frame is not None and frame.name:
-            parts.append(frame.name)
+    frames = snapshot.frames
+    frame_id = snapshot.selected_frame_id or (frames[0].id if frames else None)
+    frame = next((f for f in frames if f.id == frame_id), None)
+    exec_path = frame.path if frame is not None else None
+    exec_line = frame.line if frame is not None else None
+
+    cursor_path = snapshot.source_path
+    cursor_line = snapshot.source_line
+    cursor_col = snapshot.source_col if isinstance(snapshot.source_col, int) else None
+
+    if isinstance(exec_path, str) and isinstance(exec_line, int):
+        parts.append(fmt_loc(exec_path, exec_line))
+    elif isinstance(cursor_path, str) and isinstance(cursor_line, int):
+        parts.append(fmt_loc(cursor_path, cursor_line, cursor_col))
+
+    if frame is not None and frame.name:
+        parts.append(frame.name)
 
     thread = snapshot.selected_thread_id
     if isinstance(thread, int):
@@ -524,6 +539,21 @@ def _status_message(snapshot: SessionSnapshot) -> str:
 
     if snapshot.stop_reason:
         parts.append(snapshot.stop_reason)
+
+    if (
+        isinstance(exec_path, str)
+        and isinstance(exec_line, int)
+        and isinstance(cursor_path, str)
+        and isinstance(cursor_line, int)
+        and (cursor_path != exec_path or cursor_line != exec_line)
+    ):
+        if cursor_path == exec_path:
+            src = f"src {cursor_line}"
+        else:
+            src = f"src {fmt_loc(cursor_path, cursor_line)}"
+        if cursor_col is not None:
+            src = f"{src}:{cursor_col}"
+        parts.append(src)
 
     return "  •  ".join(parts)
 
