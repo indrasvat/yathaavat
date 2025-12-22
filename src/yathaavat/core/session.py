@@ -68,6 +68,8 @@ class SessionSnapshot:
     source_path: str | None = None
     source_line: int | None = None
     source_col: int | None = None
+    stop_reason: str | None = None
+    stop_description: str | None = None
     locals: tuple[VariableInfo, ...] = ()
     watches: tuple[WatchInfo, ...] = ()
     breakpoints: tuple[BreakpointInfo, ...] = ()

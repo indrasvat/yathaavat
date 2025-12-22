@@ -516,6 +516,8 @@ class DebugpySessionManager(SessionManager):
             source_path=None,
             source_line=None,
             source_col=None,
+            stop_reason=None,
+            stop_description=None,
             locals=(),
         )
 
@@ -530,6 +532,10 @@ class DebugpySessionManager(SessionManager):
         match name:
             case "initialized":
                 self._initialized.set()
+            case "process":
+                pid = body.get("systemProcessId")
+                if isinstance(pid, int):
+                    self.store.update(pid=pid)
             case "continued":
                 self.store.update(
                     state=SessionState.RUNNING,
@@ -539,14 +545,26 @@ class DebugpySessionManager(SessionManager):
                     source_path=None,
                     source_line=None,
                     source_col=None,
+                    stop_reason=None,
+                    stop_description=None,
                 )
             case "stopped":
                 reason = body.get("reason")
+                description = body.get("description")
                 thread_id = body.get("threadId")
                 if isinstance(thread_id, int):
-                    self.store.update(state=SessionState.PAUSED, selected_thread_id=thread_id)
+                    self.store.update(
+                        state=SessionState.PAUSED,
+                        selected_thread_id=thread_id,
+                        stop_reason=reason if isinstance(reason, str) else None,
+                        stop_description=description if isinstance(description, str) else None,
+                    )
                 else:
-                    self.store.update(state=SessionState.PAUSED)
+                    self.store.update(
+                        state=SessionState.PAUSED,
+                        stop_reason=reason if isinstance(reason, str) else None,
+                        stop_description=description if isinstance(description, str) else None,
+                    )
                 if isinstance(reason, str):
                     self.store.append_transcript(f"Stopped ({reason})")
                 await self._refresh_threads()

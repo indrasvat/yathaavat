@@ -21,6 +21,7 @@ from yathaavat.core import (
     PluginManager,
     ServiceRegistry,
     SessionSnapshot,
+    SessionState,
     SessionStore,
     Slot,
     WidgetRegistry,
@@ -294,7 +295,7 @@ class YathaavatApp(App[None]):
                     python=s.python or _runtime_python(),
                     backend=s.backend,
                     plugin_errors=len(self._plugin_errors),
-                    message="Ctrl+P palette",
+                    message=_status_message(s) or "Ctrl+P palette",
                 )
             )
 
@@ -343,6 +344,36 @@ def _help_text(ctx: AppContext) -> str:
 def _runtime_python() -> str:
     v = sys.version_info
     return f"{v.major}.{v.minor}.{v.micro}"
+
+
+def _status_message(snapshot: SessionSnapshot) -> str:
+    if snapshot.state != SessionState.PAUSED:
+        return ""
+
+    parts: list[str] = []
+
+    path = snapshot.source_path
+    line = snapshot.source_line
+    col = snapshot.source_col
+    if isinstance(path, str) and isinstance(line, int):
+        loc = f"{Path(path).name}:{line}"
+        if isinstance(col, int):
+            loc = f"{loc}:{col}"
+        parts.append(loc)
+
+    if isinstance(snapshot.selected_frame_id, int):
+        frame = next((f for f in snapshot.frames if f.id == snapshot.selected_frame_id), None)
+        if frame is not None and frame.name:
+            parts.append(frame.name)
+
+    thread = snapshot.selected_thread_id
+    if isinstance(thread, int):
+        parts.append(f"T{thread}")
+
+    if snapshot.stop_reason:
+        parts.append(snapshot.stop_reason)
+
+    return "  •  ".join(parts)
 
 
 def run_tui() -> None:
