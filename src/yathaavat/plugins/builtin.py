@@ -102,6 +102,16 @@ class BuiltinPlugin(Plugin):
             except Exception as exc:
                 host.notify(str(exc), timeout=2.5)
 
+        async def _step_out() -> None:
+            session = _session(ctx)
+            if session is None:
+                host.notify("step out (prototype)")
+                return
+            try:
+                await session.step_out()
+            except Exception as exc:
+                host.notify(str(exc), timeout=2.5)
+
         async def _toggle_breakpoint() -> None:
             session = _session(ctx)
             if session is None:
@@ -218,6 +228,18 @@ class BuiltinPlugin(Plugin):
                     default_keys=("f11", "s"),
                 ),
                 handler=_step_in,
+            )
+        )
+
+        ctx.commands.register(
+            Command(
+                CommandSpec(
+                    id="debug.step_out",
+                    title="Step Out",
+                    summary="Step out (prototype).",
+                    default_keys=("f12", "u"),
+                ),
+                handler=_step_out,
             )
         )
 

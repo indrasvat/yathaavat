@@ -313,6 +313,7 @@ def _help_text(ctx: AppContext) -> str:
         label("debug.run_to_cursor", "run-to-cursor"),
         label("debug.step_over", "next"),
         label("debug.step_in", "step"),
+        label("debug.step_out", "out"),
         label("source.find", "find"),
         label("source.goto", "goto"),
         label("watch.add", "watch"),

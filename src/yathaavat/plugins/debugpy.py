@@ -317,6 +317,11 @@ class DebugpySessionManager(SessionManager):
         thread_id = self._require_thread()
         await dap.request("stepIn", {"threadId": thread_id})
 
+    async def step_out(self) -> None:
+        dap = self._require_dap()
+        thread_id = self._require_thread()
+        await dap.request("stepOut", {"threadId": thread_id})
+
     async def select_frame(self, frame_id: int) -> None:
         frame = next((f for f in self.store.snapshot().frames if f.id == frame_id), None)
         self.store.update(
