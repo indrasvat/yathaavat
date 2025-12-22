@@ -269,7 +269,8 @@ This is intentional: it preserves context and keeps the code visible while searc
 Interaction rules:
 - typing updates the query and (debounced) jumps to the next match,
 - `Enter` / `F3` finds next match, `Shift+Enter` / `Shift+F3` finds previous,
-- match position is shown as `line:col`,
+- match position is shown as `line:col` plus `N/total` count,
+- smart-case: lowercase queries match case-insensitively; any uppercase makes it case-sensitive,
 - `Esc` closes find and returns focus to Source.
 
 ##### Source navigation: Find + Go to line
@@ -281,7 +282,7 @@ Debugging often requires scanning unfamiliar code quickly. Source supports light
 
 Design notes:
 - **Find** is implemented as a compact bottom overlay that keeps Source visible while searching (so you can confirm context while iterating matches).
-- Future v2 polish can add match counts and highlight-all, but the default remains minimal and snappy.
+- Future v2 polish can add highlight-all, but the default remains minimal and snappy.
 
 **Stack**
 - thread selector (if multiple threads), surfaced as a **Threads** tab/pane

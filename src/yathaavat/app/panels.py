@@ -286,7 +286,7 @@ class CodeView(TextArea):
             strip = apply_gutter_marker(strip, gutter_width=self.gutter_width, marker=EXEC_MARKER)
 
         if show_exec and self._exec_line == line_no:
-            strip = strip.apply_style(Style(bgcolor="#17385a"))
+            strip = strip.apply_style(Style(bgcolor="#1a4b7a"))
 
         return strip
 
@@ -429,8 +429,8 @@ class SourcePanel(Container):
         self._find_in_source(query, direction="next", include_current=True)
 
     def _find_in_source(self, query: str, *, direction: str, include_current: bool) -> None:
-        q = query.strip()
-        if not q:
+        q_raw = query.strip()
+        if not q_raw:
             return
 
         editor = self.query_one("#source_view", CodeView)
@@ -438,6 +438,10 @@ class SourcePanel(Container):
         if not text:
             self._ctx.host.notify("No source text loaded.", timeout=2.0)
             return
+
+        smart_case = any(ch.isupper() for ch in q_raw)
+        hay = text if smart_case else text.lower()
+        needle = q_raw if smart_case else q_raw.lower()
 
         doc = editor.document
         if not isinstance(doc, Document):
@@ -448,9 +452,9 @@ class SourcePanel(Container):
         if include_current:
             start_index = max(start_index - 1, -1)
         found = (
-            find_prev_index(text, q, start_index)
+            find_prev_index(hay, needle, start_index)
             if direction == "prev"
-            else find_next_index(text, q, start_index)
+            else find_next_index(hay, needle, start_index)
         )
 
         find_hint = self.query_one("#find_hint", Static)
@@ -461,13 +465,28 @@ class SourcePanel(Container):
             return
 
         start_loc = doc.get_location_from_index(found)
-        end_loc = doc.get_location_from_index(found + len(q))
+        end_loc = doc.get_location_from_index(found + len(needle))
         editor.selection = Selection(start_loc, end_loc)
         editor.cursor_location = start_loc
         editor.scroll_to(y=max(start_loc[0] - 6, 0), animate=False, immediate=True)
 
+        total = 0
+        ordinal = 0
+        pos = 0
+        while True:
+            idx = hay.find(needle, pos)
+            if idx < 0:
+                break
+            total += 1
+            if idx == found:
+                ordinal = total
+            pos = idx + 1
+
         find_hint.update("Enter next  •  Shift+Enter prev  •  Esc close")
-        find_status.update(f"{start_loc[0] + editor.line_number_start}:{start_loc[1] + 1}")
+        loc = f"{start_loc[0] + editor.line_number_start}:{start_loc[1] + 1}"
+        if total > 0:
+            loc = f"{loc}  {ordinal}/{total}"
+        find_status.update(loc)
 
     @on(TextArea.SelectionChanged, "#source_view")
     def _on_cursor_moved(self, event: TextArea.SelectionChanged) -> None:
