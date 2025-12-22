@@ -299,6 +299,7 @@ class DebugpySessionManager(SessionManager):
             selected_frame_id=None,
             source_path=None,
             source_line=None,
+            source_col=None,
         )
 
     async def pause(self) -> None:
@@ -322,6 +323,7 @@ class DebugpySessionManager(SessionManager):
             selected_frame_id=frame_id,
             source_path=frame.path if frame is not None else None,
             source_line=frame.line if frame is not None else None,
+            source_col=None,
         )
         await self._refresh_locals(frame_id)
 
@@ -429,6 +431,7 @@ class DebugpySessionManager(SessionManager):
             selected_frame_id=None,
             source_path=None,
             source_line=None,
+            source_col=None,
             locals=(),
         )
 
@@ -451,6 +454,7 @@ class DebugpySessionManager(SessionManager):
                     selected_frame_id=None,
                     source_path=None,
                     source_line=None,
+                    source_col=None,
                 )
             case "stopped":
                 reason = body.get("reason")
@@ -580,6 +584,7 @@ class DebugpySessionManager(SessionManager):
             selected_frame_id=selected_frame,
             source_path=selected.path if selected is not None else None,
             source_line=selected.line if selected is not None else None,
+            source_col=None,
         )
         if isinstance(selected_frame, int):
             await self._refresh_locals(selected_frame)

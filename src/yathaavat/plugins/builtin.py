@@ -12,6 +12,7 @@ from yathaavat.app.panels import (
     StackPanel,
     TranscriptPanel,
 )
+from yathaavat.app.source_nav import FindDialog, GotoDialog
 from yathaavat.core import (
     SESSION_MANAGER,
     SESSION_STORE,
@@ -215,6 +216,30 @@ class BuiltinPlugin(Plugin):
                     default_keys=("ctrl+f10",),
                 ),
                 handler=_run_to_cursor,
+            )
+        )
+
+        ctx.commands.register(
+            Command(
+                CommandSpec(
+                    id="source.find",
+                    title="Find…",
+                    summary="Find text in the Source panel.",
+                    default_keys=("ctrl+f",),
+                ),
+                handler=lambda: ctx.host.push_screen(FindDialog(ctx=ctx)),
+            )
+        )
+
+        ctx.commands.register(
+            Command(
+                CommandSpec(
+                    id="source.goto",
+                    title="Go to Line…",
+                    summary="Jump to a line[:col] in the Source panel.",
+                    default_keys=("ctrl+g",),
+                ),
+                handler=lambda: ctx.host.push_screen(GotoDialog(ctx=ctx)),
             )
         )
 

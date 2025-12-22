@@ -136,6 +136,30 @@ class YathaavatApp(App[None]):
     #bp_title { color: #8bd5ff; height: 1; }
     #bp_input { margin-top: 1; }
     #bp_hint { margin-top: 1; color: #93a4c7; }
+
+    #find_root {
+      width: 70%;
+      max-width: 110;
+      height: 30%;
+      border: round #2a3b52;
+      background: #0f1520;
+      padding: 1 1;
+    }
+    #find_title { color: #8bd5ff; height: 1; }
+    #find_input { margin-top: 1; }
+    #find_hint { margin-top: 1; color: #93a4c7; }
+
+    #goto_root {
+      width: 70%;
+      max-width: 110;
+      height: 30%;
+      border: round #2a3b52;
+      background: #0f1520;
+      padding: 1 1;
+    }
+    #goto_title { color: #8bd5ff; height: 1; }
+    #goto_input { margin-top: 1; }
+    #goto_hint { margin-top: 1; color: #93a4c7; }
     """
 
     BINDINGS: ClassVar[list[BindingType]] = [("ctrl+p", "open_palette", "Palette")]
@@ -268,6 +292,8 @@ def _help_text(ctx: AppContext) -> str:
         label("debug.run_to_cursor", "run-to-cursor"),
         label("debug.step_over", "next"),
         label("debug.step_in", "step"),
+        label("source.find", "find"),
+        label("source.goto", "goto"),
         label("breakpoint.add", "add bp"),
         label("breakpoint.toggle", "breakpoint"),
         label("app.quit", "quit"),

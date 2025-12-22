@@ -198,6 +198,16 @@ Rules:
 
 This avoids the common “I scrolled and now my locals changed” confusion.
 
+##### Execution line highlighting (must be unmistakable)
+
+When paused, the execution line is highlighted in Source **even if Source is not focused**.
+This is a deliberate choice: users frequently interact with Stack/Locals/Console while wanting
+peripheral confidence about “where we are stopped”.
+
+Rules:
+- Execution highlight is rendered as a full-row background (subtle but high-contrast on dark themes).
+- If the user is browsing a different file than the execution file, Source header shows: `(exec file.py:LINE)`.
+
 ##### Breakpoint gutter markers (instant visual clarity)
 
 We show breakpoint state **in the line-number gutter**, IDE-style, without widening the layout.
@@ -246,6 +256,16 @@ Important behavior notes:
 Performance constraints:
 - Adding/removing the temporary breakpoint must be O(1) on the UI thread; DAP calls happen off-thread/async.
 - No “wait forever”: UI must remain responsive even if the target line is never reached (infinite loop, different code path, etc.).
+
+##### Source navigation: Find + Go to line
+
+Debugging often requires scanning unfamiliar code quickly. Source supports lightweight, keyboard-first navigation:
+- **Find** (`Ctrl+F`): jump to next match (wraps around). Highlight the match selection and update the Source cursor location.
+- **Go to line** (`Ctrl+G`): jump to `line[:col]` in the currently open Source file.
+
+Design notes:
+- These are implemented as small modal dialogs (fast, discoverable via palette).
+- Future v2 polish can add incremental search, “find next/prev”, and persistent search UI, but the default remains minimal and snappy.
 
 **Stack**
 - thread selector (if multiple threads)

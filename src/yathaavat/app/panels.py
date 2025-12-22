@@ -6,6 +6,7 @@ from dataclasses import dataclass
 from pathlib import Path
 from typing import ClassVar
 
+from rich.style import Style
 from textual import on
 from textual.app import ComposeResult
 from textual.binding import Binding, BindingType
@@ -173,11 +174,13 @@ class CodeView(TextArea):
             soft_wrap=False,
             show_line_numbers=True,
             highlight_cursor_line=True,
-            show_cursor=False,
+            show_cursor=True,
             id="source_view",
         )
         self.path: str | None = None
         self._markers: dict[int, GutterMarker] = {}
+        self._exec_path: str | None = None
+        self._exec_line: int | None = None
 
     def set_breakpoints(self, breakpoints: tuple[BreakpointInfo, ...]) -> None:
         markers = {bp.line: marker_for_breakpoint(bp) for bp in breakpoints}
@@ -186,9 +189,24 @@ class CodeView(TextArea):
         self._markers = markers
         self.refresh()
 
+    def set_execution_location(self, path: str | None, line: int | None) -> None:
+        if path == self._exec_path and line == self._exec_line:
+            return
+        self._exec_path = path
+        self._exec_line = line
+        self.refresh()
+
     def render_line(self, y: int) -> Strip:
         strip = super().render_line(y)
-        if not self.show_line_numbers or not self._markers:
+        if not self.show_line_numbers:
+            return strip
+
+        show_exec = (
+            self._exec_line is not None
+            and self._exec_path is not None
+            and self.path == self._exec_path
+        )
+        if not self._markers and not show_exec:
             return strip
 
         scroll_x, scroll_y = self.scroll_offset
@@ -210,9 +228,13 @@ class CodeView(TextArea):
 
         line_no = int(line_index) + self.line_number_start
         marker = self._markers.get(line_no)
-        if marker is None:
-            return strip
-        return apply_gutter_marker(strip, gutter_width=self.gutter_width, marker=marker)
+        if marker is not None:
+            strip = apply_gutter_marker(strip, gutter_width=self.gutter_width, marker=marker)
+
+        if show_exec and self._exec_line == line_no:
+            strip = strip.apply_style(Style(bgcolor="#1a2a40"))
+
+        return strip
 
 
 class SourcePanel(Container):
@@ -222,6 +244,7 @@ class SourcePanel(Container):
         self._unsubscribe: Callable[[], None] | None = None
         self._path: str | None = None
         self._line: int | None = None
+        self._col: int | None = None
         self._syncing_cursor = False
 
     def compose(self) -> ComposeResult:
@@ -244,12 +267,19 @@ class SourcePanel(Container):
             return
         if editor.path is None:
             return
-        row, _col = editor.cursor_location
+        row, col = editor.cursor_location
         line = row + editor.line_number_start
+        col1 = col + 1
         snap = self._store.snapshot()
-        if snap.source_path == editor.path and snap.source_line == line:
+        self._line = line
+        self._col = col1
+        if (
+            snap.source_path == editor.path
+            and snap.source_line == line
+            and (snap.source_col or 1) == col1
+        ):
             return
-        self._store.update(source_path=editor.path, source_line=line)
+        self._store.update(source_path=editor.path, source_line=line, source_col=col1)
 
     def _on_snapshot(self, snapshot: SessionSnapshot) -> None:
         header = self.query_one("#source_header", Static)
@@ -259,6 +289,24 @@ class SourcePanel(Container):
         try:
             raw_path = snapshot.source_path
             line = snapshot.source_line
+            col = snapshot.source_col
+            col = col if isinstance(col, int) and col > 0 else 1
+
+            exec_path: str | None = None
+            exec_line: int | None = None
+            frame_id = snapshot.selected_frame_id or (
+                snapshot.frames[0].id if snapshot.frames else None
+            )
+            frame = next((f for f in snapshot.frames if f.id == frame_id), None)
+            if frame is not None and frame.path and isinstance(frame.line, int):
+                try:
+                    exec_path = str(Path(frame.path).expanduser().resolve())
+                    exec_line = frame.line
+                except OSError:
+                    exec_path = None
+                    exec_line = None
+            editor.set_execution_location(exec_path, exec_line)
+
             if not raw_path or not isinstance(line, int):
                 header.update("No frame selected.")
                 editor.path = None
@@ -267,6 +315,7 @@ class SourcePanel(Container):
                 editor.set_breakpoints(())
                 self._path = None
                 self._line = None
+                self._col = None
                 return
 
             resolved = str(Path(raw_path).expanduser().resolve())
@@ -281,6 +330,7 @@ class SourcePanel(Container):
                     editor.set_breakpoints(())
                     self._path = None
                     self._line = None
+                    self._col = None
                     return
 
                 lang = _language_for_path(Path(resolved)) or "text"
@@ -291,13 +341,30 @@ class SourcePanel(Container):
                 editor.path = resolved
                 self._path = resolved
                 self._line = None
+                self._col = None
 
             editor.set_breakpoints(tuple(bp for bp in snapshot.breakpoints if bp.path == resolved))
 
-            header.update(f"{resolved}:{line}")
-            if line != self._line:
+            header_text = f"{resolved}:{line}"
+            if (
+                exec_path is not None
+                and exec_line is not None
+                and (exec_path != resolved or exec_line != line)
+            ):
+                header_text = f"{header_text}  (exec {Path(exec_path).name}:{exec_line})"
+            header.update(header_text)
+
+            if line != self._line or col != self._col:
+                row = max(line - 1, 0)
+                col0 = max(col - 1, 0)
+                try:
+                    max_col0 = max(len(editor.document.get_line(row)), 0)
+                except Exception:
+                    max_col0 = 0
+                col0 = min(col0, max_col0)
                 self._line = line
-                editor.cursor_location = (max(line - 1, 0), 0)
+                self._col = col
+                editor.cursor_location = (row, col0)
                 editor.scroll_to(y=max(line - 7, 0), animate=False, immediate=True)
         finally:
             self._syncing_cursor = False
@@ -480,7 +547,7 @@ class BreakpointsTable(DataTable[str]):
         snap = self._store.snapshot()
         if snap.source_path == bp.path and snap.source_line == bp.line:
             return
-        self._store.update(source_path=bp.path, source_line=bp.line)
+        self._store.update(source_path=bp.path, source_line=bp.line, source_col=1)
 
     async def action_delete_breakpoint(self) -> None:
         bp = self._selected()
@@ -499,7 +566,7 @@ class BreakpointsTable(DataTable[str]):
         bp = self._selected()
         if bp is None:
             return
-        self._store.update(source_path=bp.path, source_line=bp.line)
+        self._store.update(source_path=bp.path, source_line=bp.line, source_col=1)
 
     def action_copy_location(self) -> None:
         bp = self._selected()

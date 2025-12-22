@@ -56,6 +56,7 @@ class SessionSnapshot:
     selected_frame_id: int | None = None
     source_path: str | None = None
     source_line: int | None = None
+    source_col: int | None = None
     locals: tuple[VariableInfo, ...] = ()
     breakpoints: tuple[BreakpointInfo, ...] = ()
     transcript: tuple[str, ...] = ()
