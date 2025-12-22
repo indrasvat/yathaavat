@@ -40,6 +40,9 @@ class VariableInfo:
 class BreakpointInfo:
     path: str
     line: int
+    condition: str | None = None
+    hit_condition: str | None = None
+    log_message: str | None = None
     verified: bool | None = None
     message: str | None = None
 
@@ -164,6 +167,19 @@ class SilentEvaluateManager(SessionManager, Protocol):
 @runtime_checkable
 class ThreadSelectionManager(SessionManager, Protocol):
     async def select_thread(self, thread_id: int) -> None: ...
+
+
+@runtime_checkable
+class BreakpointConfigManager(SessionManager, Protocol):
+    async def set_breakpoint_config(
+        self,
+        path: str,
+        line: int,
+        *,
+        condition: str | None = None,
+        hit_condition: str | None = None,
+        log_message: str | None = None,
+    ) -> None: ...
 
 
 SESSION_STORE: ServiceKey[SessionStore] = ServiceKey("session.store")

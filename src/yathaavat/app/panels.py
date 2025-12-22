@@ -15,6 +15,7 @@ from textual.events import MouseDown
 from textual.strip import Strip
 from textual.widgets import DataTable, Input, ListItem, ListView, RichLog, Static, TextArea
 
+from yathaavat.app.breakpoint import BreakpointEditDialog
 from yathaavat.app.source_gutter import GutterMarker, apply_gutter_marker, marker_for_breakpoint
 from yathaavat.core import (
     SESSION_MANAGER,
@@ -591,6 +592,7 @@ class BreakpointsTable(DataTable[str]):
     BINDINGS: ClassVar[list[BindingType]] = [
         ("d", "delete_breakpoint", "Delete"),
         ("enter", "jump", "Jump"),
+        ("e", "edit_breakpoint", "Edit"),
         ("y", "copy_location", "Copy Location"),
     ]
 
@@ -617,7 +619,7 @@ class BreakpointsTable(DataTable[str]):
             p = Path(bp.path)
             file = p.name if bp.path else "?"
             status = "✓" if bp.verified else ("…" if bp.verified is None else "✗")
-            msg = bp.message or ""
+            msg = _format_breakpoint_details(bp)
             self.add_row(file, str(bp.line), status, msg)
 
     @on(DataTable.RowHighlighted)
@@ -656,11 +658,30 @@ class BreakpointsTable(DataTable[str]):
         self.app.copy_to_clipboard(f"{bp.path}:{bp.line}")
         self._ctx.host.notify("Copied location.", timeout=1.2)
 
+    def action_edit_breakpoint(self) -> None:
+        bp = self._selected()
+        if bp is None:
+            return
+        self._ctx.host.push_screen(BreakpointEditDialog(ctx=self._ctx, breakpoint=bp))
+
     def _selected(self) -> BreakpointInfo | None:
         row = self.cursor_row
         if row is None or row < 0 or row >= len(self._rows):
             return None
         return self._rows[row]
+
+
+def _format_breakpoint_details(bp: BreakpointInfo) -> str:
+    parts: list[str] = []
+    if bp.log_message:
+        parts.append(f"log {bp.log_message}")
+    if bp.condition:
+        parts.append(f"if {bp.condition}")
+    if bp.hit_condition:
+        parts.append(f"hit {bp.hit_condition}")
+    if bp.message:
+        parts.append(bp.message)
+    return "  •  ".join(parts)
 
 
 class BreakpointsPanel(Container):

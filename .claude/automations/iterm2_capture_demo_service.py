@@ -198,6 +198,29 @@ async def main(connection: iterm2.Connection) -> None:
     tui_paused_png = out_dir / "tui_demo_service_paused.png"
     _screencapture(tui_paused_png)
 
+    # Add configured breakpoints (logpoint + hit count) and verify they render in the Breakpoints pane.
+    await tui.async_send_text("\x02")  # Ctrl+B
+    await _wait_for_screen_contains(tui, "Add breakpoint", timeout_s=6)
+    await asyncio.sleep(0.2)
+    await tui.async_send_text("examples/demo_service.py:128 log __YLOG__\r")
+    await _wait_for_screen_not_contains(tui, "Add breakpoint", timeout_s=6)
+    await asyncio.sleep(0.25)
+
+    await tui.async_send_text("\x02")  # Ctrl+B
+    await _wait_for_screen_contains(tui, "Add breakpoint", timeout_s=6)
+    await asyncio.sleep(0.2)
+    await tui.async_send_text("examples/demo_service.py:190 hit 3\r")
+    await _wait_for_screen_not_contains(tui, "Add breakpoint", timeout_s=6)
+    await asyncio.sleep(0.25)
+
+    await _wait_for_screen_contains(tui, "__YLOG__", timeout_s=6)
+    await _wait_for_screen_contains(tui, "hit 3", timeout_s=6)
+    (out_dir / "tui_demo_service_breakpoints_config.txt").write_text(
+        await _screen_text(tui), encoding="utf-8"
+    )
+    tui_bp_cfg_png = out_dir / "tui_demo_service_breakpoints_config.png"
+    _screencapture(tui_bp_cfg_png)
+
     # Ensure focus isn't inside an Input widget.
     await tui.async_send_text("\t\t")
     await asyncio.sleep(0.25)
@@ -244,6 +267,31 @@ async def main(connection: iterm2.Connection) -> None:
     tui_running_png = out_dir / "tui_demo_service_running.png"
     _screencapture(tui_running_png)
 
+    # Exercise hit-condition breakpoint (3rd /health pauses).
+    await client.async_send_text(
+        f"curl -fsS http://127.0.0.1:{http_port}/health >/dev/null && echo __HEALTH_1_OK__\n"
+    )
+    await _wait_for_screen_contains(client, "__HEALTH_1_OK__", timeout_s=10)
+    await client.async_send_text(
+        f"curl -fsS http://127.0.0.1:{http_port}/health >/dev/null && echo __HEALTH_2_OK__\n"
+    )
+    await _wait_for_screen_contains(client, "__HEALTH_2_OK__", timeout_s=10)
+
+    await client.async_send_text(
+        f"curl -fsS --max-time 60 http://127.0.0.1:{http_port}/health "
+        ">/dev/null 2>&1 & echo __HEALTH_3_SENT__\n"
+    )
+    await _wait_for_screen_contains(client, "__HEALTH_3_SENT__", timeout_s=10)
+    await _wait_for_screen_contains(tui, "PAUSED", timeout_s=25)
+    (out_dir / "tui_demo_service_hit3_paused.txt").write_text(
+        await _screen_text(tui), encoding="utf-8"
+    )
+    tui_hit3_png = out_dir / "tui_demo_service_hit3_paused.png"
+    _screencapture(tui_hit3_png)
+
+    await tui.async_send_text("c")
+    await _wait_for_screen_contains(tui, "RUNNING", timeout_s=12)
+
     # Quit yathaavat.
     await tui.async_send_text("\x11")  # Ctrl+Q
     await asyncio.sleep(0.6)
@@ -256,10 +304,12 @@ async def main(connection: iterm2.Connection) -> None:
     print(f"Wrote {tui_main_png}")
     print(f"Wrote {tui_connected_png}")
     print(f"Wrote {tui_paused_png}")
+    print(f"Wrote {tui_bp_cfg_png}")
     print(f"Wrote {tui_watch_png}")
     print(f"Wrote {tui_find_png}")
     print(f"Wrote {tui_step_png}")
     print(f"Wrote {tui_running_png}")
+    print(f"Wrote {tui_hit3_png}")
 
 
 if __name__ == "__main__":

@@ -286,6 +286,55 @@ Design notes:
 - edit: condition, hit count, log message
 - per-breakpoint “why unverified” explanation if available
 
+#### Breakpoints: configure vs toggle (conditions, hit counts, logpoints)
+
+Breakpoints are “first-class” objects in v2:
+- **Toggle** breakpoints are the fast path (single key, no prompts).
+- **Configured** breakpoints are the power path (conditions, hit counts, logpoints), but still ergonomic.
+
+##### The three configuration fields
+
+All fields map directly onto DAP `setBreakpoints` request fields:
+- **Condition** (`condition`): Python expression evaluated at the breakpoint site.
+  - If falsey, the breakpoint does not trigger.
+  - Adapter-defined: expression language, scope, and error behavior are backend-specific.
+- **Hit condition** (`hitCondition`): adapter-defined “stop on the Nth hit” behavior.
+  - Typically supports numeric values (`3`) and, in some adapters, comparators (`>=3`).
+- **Log message** (`logMessage`): makes the breakpoint a **logpoint**.
+  - Instead of pausing, the adapter emits an output event (captured in Transcript).
+  - Supports adapter-defined expression interpolation (often `{expr}`).
+
+##### UX: adding and editing configured breakpoints
+
+Fast creation flows:
+- `F9` / `b` / gutter click: **toggle** breakpoint at Source cursor.
+- `Ctrl+B`: **Add breakpoint…** dialog:
+  - accepts `path:line` or `path#Lline` or just `line` (uses current Source file),
+  - optional config tokens:
+    - `if EXPR`
+    - `hit N`
+    - `log MSG`
+  - tokens with spaces are quoted (shell-style parsing).
+
+Examples:
+- `app/service.py:120`
+- `app/service.py:120 if "user.is_admin"`
+- `app/service.py:120 hit 3`
+- `app/service.py:120 log "order={order.id} total={total}"`
+
+Editing flows:
+- Breakpoints panel shows configuration in the “Message” column (`log … • if … • hit …`).
+- `e` on a breakpoint row opens an inline editor (bottom overlay) to update/clear fields.
+
+##### Offline queueing (disconnected workflows)
+
+Breakpoints can be created while disconnected and are **queued**:
+- The UI shows them immediately (and Source gutter markers update when viewing that file).
+- On connect/launch, yathaavat applies all queued breakpoints via DAP.
+- Verification state transitions from “queued/pending” → “verified” or “error”, and the gutter updates.
+
+This keeps workflows frictionless: you can prepare breakpoints before connecting to a long-running process.
+
 **Console**
 - input: multiline, history, completion (best-effort), safe paste
 - output: structured (stdout/stderr/debugger output separated)

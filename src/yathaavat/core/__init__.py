@@ -8,6 +8,7 @@ from yathaavat.core.services import ServiceKey, ServiceRegistry
 from yathaavat.core.session import (
     SESSION_MANAGER,
     SESSION_STORE,
+    BreakpointConfigManager,
     BreakpointInfo,
     FrameInfo,
     RunToCursorManager,
@@ -30,6 +31,7 @@ __all__ = [
     "SESSION_MANAGER",
     "SESSION_STORE",
     "AppContext",
+    "BreakpointConfigManager",
     "BreakpointInfo",
     "Command",
     "CommandRegistry",

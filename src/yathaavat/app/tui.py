@@ -138,6 +138,22 @@ class YathaavatApp(App[None]):
     #bp_input { margin-top: 1; }
     #bp_hint { margin-top: 1; color: #93a4c7; }
 
+    #bpedit_root {
+      dock: bottom;
+      margin: 0 2 1 2;
+      width: 1fr;
+      max-width: 140;
+      height: 12;
+      border: round #2a3b52;
+      background: #0f1520;
+      padding: 1 1;
+    }
+    #bpedit_title { color: #8bd5ff; height: 1; }
+    #bpedit_condition { margin-top: 1; }
+    #bpedit_hit { margin-top: 1; }
+    #bpedit_log { margin-top: 1; }
+    #bpedit_hint { margin-top: 1; color: #93a4c7; height: 1; }
+
     #find_root {
       dock: bottom;
       margin: 0 2 1 2;

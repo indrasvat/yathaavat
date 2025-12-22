@@ -67,8 +67,7 @@ def test_run_to_cursor_does_not_remove_existing_breakpoint(tmp_path: Path) -> No
     target.write_text("x = 1\n", encoding="utf-8")
     path = str(target.resolve())
 
-    manager._breakpoints[path] = {10}
-    store.update(breakpoints=(BreakpointInfo(path=path, line=10, verified=True, message=None),))
+    asyncio.run(manager.toggle_breakpoint(path, 10))
 
     asyncio.run(manager.run_to_cursor(path, 10))
     assert manager._run_to_cursor_target == (path, 10)

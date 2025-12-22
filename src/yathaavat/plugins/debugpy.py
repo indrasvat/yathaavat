@@ -72,13 +72,20 @@ def _parse_variables(items: list[object]) -> list[VariableInfo]:
     return variables
 
 
+@dataclass(frozen=True, slots=True)
+class _BreakpointConfig:
+    condition: str | None = None
+    hit_condition: str | None = None
+    log_message: str | None = None
+
+
 @dataclass(slots=True)
 class DebugpySessionManager(SessionManager):
     store: SessionStore
     host: UiHost
     _dap: DapClient | None = None
     _initialized: asyncio.Event = field(default_factory=asyncio.Event)
-    _breakpoints: dict[str, set[int]] = field(default_factory=dict)
+    _breakpoints: dict[str, dict[int, _BreakpointConfig]] = field(default_factory=dict)
     _run_to_cursor_target: tuple[str, int] | None = None
     _run_to_cursor_added: bool = False
     _launched: asyncio.subprocess.Process | None = None
@@ -377,25 +384,24 @@ class DebugpySessionManager(SessionManager):
         if line <= 0:
             raise ValueError("Invalid line number")
 
-        lines = self._breakpoints.setdefault(path, set())
-        removed = line in lines
-        if line in lines:
-            lines.remove(line)
+        configs = self._breakpoints.setdefault(path, {})
+        removed = line in configs
+        if removed:
+            configs.pop(line, None)
         else:
-            lines.add(line)
+            configs[line] = _BreakpointConfig()
 
-        if not lines:
-            # Keep the map tidy so we don't resync empty entries.
+        if not configs:
             self._breakpoints.pop(path, None)
 
         if self._dap is None:
-            self._set_breakpoints_offline(path, sorted(lines))
+            self._set_breakpoints_offline(path, sorted(configs))
             file = Path(path).name
             action = "removed" if removed else "queued"
             self.store.append_transcript(f"Breakpoint {action}: {file}:{line}")
             return
 
-        await self._set_breakpoints(path, sorted(lines))
+        await self._set_breakpoints(path, sorted(configs))
 
     async def run_to_cursor(self, path: str, line: int) -> None:
         if self._dap is None:
@@ -405,11 +411,11 @@ class DebugpySessionManager(SessionManager):
         if line <= 0:
             raise ValueError("Invalid line number")
 
-        lines = self._breakpoints.setdefault(path, set())
-        already = line in lines
+        configs = self._breakpoints.setdefault(path, {})
+        already = line in configs
         if not already:
-            lines.add(line)
-            await self._set_breakpoints(path, sorted(lines))
+            configs[line] = _BreakpointConfig()
+            await self._set_breakpoints(path, sorted(configs))
 
         self._run_to_cursor_target = (path, line)
         self._run_to_cursor_added = not already
@@ -417,11 +423,62 @@ class DebugpySessionManager(SessionManager):
         self.store.append_transcript(f"Run to cursor: {Path(path).name}:{line}{note}")
         await self.resume()
 
+    async def set_breakpoint_config(
+        self,
+        path: str,
+        line: int,
+        *,
+        condition: str | None = None,
+        hit_condition: str | None = None,
+        log_message: str | None = None,
+    ) -> None:
+        path = str(Path(path).expanduser().resolve())
+        if line <= 0:
+            raise ValueError("Invalid line number")
+
+        configs = self._breakpoints.setdefault(path, {})
+        configs[line] = _BreakpointConfig(
+            condition=condition or None,
+            hit_condition=hit_condition or None,
+            log_message=log_message or None,
+        )
+
+        # Keep the map tidy.
+        if not configs:
+            self._breakpoints.pop(path, None)
+
+        if self._dap is None:
+            self._set_breakpoints_offline(path, sorted(configs))
+            file = Path(path).name
+            parts = []
+            if condition:
+                parts.append("if")
+            if hit_condition:
+                parts.append("hit")
+            if log_message:
+                parts.append("log")
+            suffix = f" ({', '.join(parts)})" if parts else ""
+            self.store.append_transcript(f"Breakpoint queued: {file}:{line}{suffix}")
+            return
+
+        # Apply to adapter.
+        await self._set_breakpoints(path, sorted(configs))
+
     def _set_breakpoints_offline(self, path: str, lines: list[int]) -> None:
         # When disconnected, we still track and display breakpoints so they can be queued
         # and applied on the next connect/launch.
+        cfgs = self._breakpoints.get(path) or {}
         updated = tuple(
-            BreakpointInfo(path=path, line=line, verified=None, message="queued") for line in lines
+            BreakpointInfo(
+                path=path,
+                line=line,
+                condition=(cfgs.get(line) or _BreakpointConfig()).condition,
+                hit_condition=(cfgs.get(line) or _BreakpointConfig()).hit_condition,
+                log_message=(cfgs.get(line) or _BreakpointConfig()).log_message,
+                verified=None,
+                message="queued",
+            )
+            for line in lines
         )
         existing = tuple(bp for bp in self.store.snapshot().breakpoints if bp.path != path)
         self.store.update(
@@ -550,11 +607,11 @@ class DebugpySessionManager(SessionManager):
         )
 
     async def _clear_breakpoint_line(self, path: str, line: int) -> None:
-        lines = self._breakpoints.get(path)
-        if not lines or line not in lines:
+        configs = self._breakpoints.get(path)
+        if not configs or line not in configs:
             return
-        lines.remove(line)
-        remaining = sorted(lines)
+        configs.pop(line, None)
+        remaining = sorted(configs)
         if not remaining:
             self._breakpoints.pop(path, None)
         await self._set_breakpoints(path, remaining)
@@ -646,11 +703,23 @@ class DebugpySessionManager(SessionManager):
 
     async def _set_breakpoints(self, path: str, lines: list[int]) -> None:
         dap = self._require_dap()
+        cfgs = self._breakpoints.get(path) or {}
+        requested: list[dict[str, object]] = []
+        for line in lines:
+            cfg = cfgs.get(line) or _BreakpointConfig()
+            bp: dict[str, object] = {"line": line}
+            if cfg.condition:
+                bp["condition"] = cfg.condition
+            if cfg.hit_condition:
+                bp["hitCondition"] = cfg.hit_condition
+            if cfg.log_message:
+                bp["logMessage"] = cfg.log_message
+            requested.append(bp)
         resp = await dap.request(
             "setBreakpoints",
             {
                 "source": {"path": path},
-                "breakpoints": [{"line": line} for line in lines],
+                "breakpoints": requested,
                 "sourceModified": False,
             },
         )
@@ -658,15 +727,20 @@ class DebugpySessionManager(SessionManager):
         for item in _as_list(_body(resp).get("breakpoints")):
             if not isinstance(item, dict):
                 continue
-            line = item.get("line")
-            if not isinstance(line, int):
+            raw_line = item.get("line")
+            if not isinstance(raw_line, int):
                 continue
+            line = raw_line
             verified = item.get("verified")
             message = item.get("message")
+            cfg = cfgs.get(line) or _BreakpointConfig()
             updated.append(
                 BreakpointInfo(
                     path=path,
                     line=line,
+                    condition=cfg.condition,
+                    hit_condition=cfg.hit_condition,
+                    log_message=cfg.log_message,
                     verified=verified if isinstance(verified, bool) else None,
                     message=message if isinstance(message, str) else None,
                 )
