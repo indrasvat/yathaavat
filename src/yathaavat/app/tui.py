@@ -5,6 +5,7 @@ from collections.abc import Callable
 from pathlib import Path
 from typing import ClassVar
 
+from textual import events
 from textual.app import App, ComposeResult
 from textual.binding import BindingType
 from textual.containers import Container, Horizontal
@@ -30,21 +31,40 @@ from yathaavat.core import (
 
 class YathaavatApp(App[None]):
     CSS = """
-    Screen { background: #0b0f14; color: #d6e2ff; }
+    $bg: #0b0f14;
+    $bg_chrome: #070a0f;
+    $bg_panel: #0e1521;
+    $bg_panel_muted: #101823;
+    $bg_modal: #0f1520;
+    $border: #1f2a3a;
+    $border_modal: #2a3b52;
+    $border_focus: #3aa6ff;
+    $fg: #d6e2ff;
+    $fg_muted: #93a4c7;
+    $fg_dim: #6e7c9a;
+    $accent: #8bd5ff;
+    $success: #4ade80;
+    $warning: #f2c94c;
+    $danger: #ff5c5c;
+    $selection_bg: #12324f;
+    $selection_bg_focus: #1a4b7a;
+    $cursor_line_bg: #0f2033;
+
+    Screen { background: $bg; color: $fg; }
 
     #status {
       dock: top;
       height: 1;
       padding: 0 1;
-      background: #070a0f;
+      background: $bg_chrome;
     }
 
     #help {
       dock: bottom;
       height: 1;
       padding: 0 1;
-      background: #070a0f;
-      color: #93a4c7;
+      background: $bg_chrome;
+      color: $fg_muted;
     }
 
     #root { height: 1fr; }
@@ -73,10 +93,19 @@ class YathaavatApp(App[None]):
     #root.zoom-bottom-right #bottom_left { display: none; }
 
     .pane {
-      border: tall #1f2a3a;
-      background: #0e1521;
+      border: tall $border;
+      background: $bg_panel;
     }
-    .pane_empty { padding: 1 1; color: #93a4c7; }
+    .pane_empty { padding: 1 1; color: $fg_muted; }
+
+    /* Focus ring: one obvious cue, everywhere. */
+    #root.focus-left #left,
+    #root.focus-center #center,
+    #root.focus-right #right,
+    #root.focus-bottom-left #bottom_left,
+    #root.focus-bottom-right #bottom_right {
+      border: tall $border_focus;
+    }
 
     TabbedContent { height: 1fr; }
     TabPane { padding: 0 0; }
@@ -84,81 +113,102 @@ class YathaavatApp(App[None]):
     #source_header {
       height: 1;
       padding: 0 1;
-      background: #0b1a2a;
-      color: #8bd5ff;
+      background: $bg_panel_muted;
+      color: $accent;
     }
-    #source_view { height: 1fr; background: #0b0f14; }
+    #source_view { height: 1fr; background: $bg; border: none; padding: 0 1; }
+    #source_view .text-area--cursor-line { background: $cursor_line_bg; }
+    #source_view .text-area--selection { background: $selection_bg_focus; }
 
-    #locals_table { height: 1fr; background: #0b0f14; }
-    #watches_table { height: 1fr; background: #0b0f14; }
-    #breakpoints_table { height: 1fr; background: #0b0f14; }
+    #locals_table { height: 1fr; background: $bg; }
+    #watches_table { height: 1fr; background: $bg; }
+    #breakpoints_table { height: 1fr; background: $bg; }
 
-    #console_log { height: 1fr; background: #0b0f14; }
-    #console_input { height: 1; }
+    #console_log { height: 1fr; background: $bg; }
+    #console_input { height: 1; border: none; background: $bg_panel_muted; padding: 0 1; }
 
-    #transcript_log { height: 1fr; background: #0b0f14; }
+    #transcript_log { height: 1fr; background: $bg; }
+
+    /* Tabs / tables / lists: sharpen selection + discoverability. */
+    Tabs { background: $bg_panel_muted; }
+    Tab { color: $fg_muted; }
+    Tab.-active { color: $fg; text-style: bold; }
+    Tabs:focus .underline--bar { color: $accent; background: $bg; }
+    Tabs:focus Tab.-active { background: $selection_bg; color: $fg; }
+
+    ListView { background: $bg; }
+    ListView > ListItem.-hovered { background: $bg_panel_muted; }
+    ListView > ListItem.-highlight { background: $selection_bg; color: $fg; }
+    ListView:focus > ListItem.-highlight { background: $selection_bg_focus; text-style: bold; }
+
+    DataTable { background: $bg; color: $fg; }
+    DataTable > .datatable--header { background: $bg_panel_muted; color: $fg; }
+    DataTable > .datatable--even-row { background: $bg_panel_muted 30%; }
+    DataTable > .datatable--cursor { background: $selection_bg; color: $fg; }
+    DataTable:focus > .datatable--cursor { background: $selection_bg_focus; text-style: bold; }
+    DataTable > .datatable--hover { background: $bg_panel_muted; }
 
     #pal_root {
       width: 86%;
       max-width: 120;
       height: 70%;
-      border: round #2a3b52;
-      background: #0f1520;
+      border: round $border_modal;
+      background: $bg_modal;
       padding: 1 1;
     }
-    #pal_title { color: #8bd5ff; height: 1; }
+    #pal_title { color: $accent; height: 1; }
     #pal_input { margin-top: 1; }
     #pal_list { margin-top: 1; }
-    .pal_row { color: #d6e2ff; }
+    .pal_row { color: $fg; }
 
     #attach_root {
       width: 92%;
       max-width: 140;
       height: 80%;
-      border: round #2a3b52;
-      background: #0f1520;
+      border: round $border_modal;
+      background: $bg_modal;
       padding: 1 1;
     }
-    #attach_title { color: #8bd5ff; height: 1; }
+    #attach_title { color: $accent; height: 1; }
     #attach_input { margin-top: 1; }
     #attach_list { margin-top: 1; }
-    .attach_row { color: #d6e2ff; }
+    .attach_row { color: $fg; }
 
     #connect_root {
       width: 70%;
       max-width: 90;
       height: 30%;
-      border: round #2a3b52;
-      background: #0f1520;
+      border: round $border_modal;
+      background: $bg_modal;
       padding: 1 1;
     }
-    #connect_title { color: #8bd5ff; height: 1; }
+    #connect_title { color: $accent; height: 1; }
     #connect_input { margin-top: 1; }
-    #connect_hint { margin-top: 1; color: #93a4c7; }
+    #connect_hint { margin-top: 1; color: $fg_muted; }
 
     #launch_root {
       width: 86%;
       max-width: 130;
       height: 34%;
-      border: round #2a3b52;
-      background: #0f1520;
+      border: round $border_modal;
+      background: $bg_modal;
       padding: 1 1;
     }
-    #launch_title { color: #8bd5ff; height: 1; }
+    #launch_title { color: $accent; height: 1; }
     #launch_input { margin-top: 1; }
-    #launch_hint { margin-top: 1; color: #93a4c7; }
+    #launch_hint { margin-top: 1; color: $fg_muted; }
 
     #bp_root {
       width: 70%;
       max-width: 110;
       height: 30%;
-      border: round #2a3b52;
-      background: #0f1520;
+      border: round $border_modal;
+      background: $bg_modal;
       padding: 1 1;
     }
-    #bp_title { color: #8bd5ff; height: 1; }
+    #bp_title { color: $accent; height: 1; }
     #bp_input { margin-top: 1; }
-    #bp_hint { margin-top: 1; color: #93a4c7; }
+    #bp_hint { margin-top: 1; color: $fg_muted; }
 
     #bpedit_root {
       dock: bottom;
@@ -166,42 +216,42 @@ class YathaavatApp(App[None]):
       width: 1fr;
       max-width: 140;
       height: 12;
-      border: round #2a3b52;
-      background: #0f1520;
+      border: round $border_modal;
+      background: $bg_modal;
       padding: 1 1;
     }
-    #bpedit_title { color: #8bd5ff; height: 1; }
+    #bpedit_title { color: $accent; height: 1; }
     #bpedit_condition { margin-top: 1; }
     #bpedit_hit { margin-top: 1; }
     #bpedit_log { margin-top: 1; }
-    #bpedit_hint { margin-top: 1; color: #93a4c7; height: 1; }
+    #bpedit_hint { margin-top: 1; color: $fg_muted; height: 1; }
 
     #find_root {
       dock: bottom;
-      margin: 0 1;
+      margin: 0;
       width: 1fr;
-      height: 4;
-      border: round #2a3b52;
-      background: #0f1520;
+      height: 2;
+      border: none;
+      background: $bg_panel_muted;
       padding: 0 1;
     }
     #find_row { height: 1; }
-    #find_title { color: #8bd5ff; width: 6; }
+    #find_title { color: $accent; width: 6; }
     #find_input { width: 1fr; margin: 0 1; }
-    #find_status { color: #93a4c7; width: 14; }
-    #find_hint { color: #93a4c7; height: 1; }
+    #find_status { color: $fg_muted; width: 14; }
+    #find_hint { color: $fg_muted; height: 1; }
 
     #goto_root {
       width: 70%;
       max-width: 110;
       height: 30%;
-      border: round #2a3b52;
-      background: #0f1520;
+      border: round $border_modal;
+      background: $bg_modal;
       padding: 1 1;
     }
-    #goto_title { color: #8bd5ff; height: 1; }
+    #goto_title { color: $accent; height: 1; }
     #goto_input { margin-top: 1; }
-    #goto_hint { margin-top: 1; color: #93a4c7; }
+    #goto_hint { margin-top: 1; color: $fg_muted; }
 
     #watch_root {
       dock: bottom;
@@ -209,15 +259,20 @@ class YathaavatApp(App[None]):
       width: 1fr;
       max-width: 140;
       height: 8;
-      border: round #2a3b52;
-      background: #0f1520;
+      border: round $border_modal;
+      background: $bg_modal;
       padding: 1 1;
     }
     #watch_row { height: 3; }
-    #watch_title { color: #8bd5ff; width: 6; }
+    #watch_title { color: $accent; width: 6; }
     #watch_input { width: 1fr; margin: 0 1; }
-    #watch_status { color: #93a4c7; width: 8; }
-    #watch_hint { margin-top: 0; color: #93a4c7; height: 1; }
+    #watch_status { color: $fg_muted; width: 8; }
+    #watch_hint { margin-top: 0; color: $fg_muted; height: 1; }
+
+    /* Inputs: compact by default, obvious focus. */
+    Input { background: $bg_panel_muted; color: $fg; border: tall $border; padding: 0 1; }
+    Input:focus { border: tall $border_focus; }
+    #console_input, #find_input { border: none; background: $bg_panel_muted; padding: 0 1; }
     """
 
     BINDINGS: ClassVar[list[BindingType]] = [("ctrl+p", "open_palette", "Palette")]
@@ -231,6 +286,7 @@ class YathaavatApp(App[None]):
         self._help = HelpLine()
         self._status_unsubscribe: Callable[[], None] | None = None
         self._zoom_mode: str | None = None
+        self._focus_mode: str | None = None
         self._last_snapshot: SessionSnapshot | None = None
         self._root_container: Container | None = None
 
@@ -284,6 +340,7 @@ class YathaavatApp(App[None]):
         self._help.set_text(_help_text(self._ctx))
         self._root_container = self.query_one("#root", Container)
         self.call_later(self._focus_default)
+        self.call_after_refresh(self._sync_focus_ring)
 
     def on_unmount(self) -> None:
         if self._status_unsubscribe is not None:
@@ -376,6 +433,25 @@ class YathaavatApp(App[None]):
         self._zoom_mode = mode
         self._set_status(self._last_snapshot)
 
+    def on_descendant_focus(self, event: events.DescendantFocus) -> None:
+        self._sync_focus_ring(event.control)
+
+    def on_descendant_blur(self, _event: events.DescendantBlur) -> None:
+        self._sync_focus_ring(self.focused)
+
+    def _sync_focus_ring(self, focused: object | None = None) -> None:
+        root = self._root_container
+        if root is None:
+            return
+
+        mode = _focus_target_for_focus(focused or self.focused)
+        if mode == self._focus_mode:
+            return
+        if self._focus_mode is not None:
+            root.remove_class(self._focus_mode)
+        root.add_class(mode)
+        self._focus_mode = mode
+
     def _focus_default(self) -> None:
         try:
             self.query_one("#source_view").focus()
@@ -467,6 +543,23 @@ def _zoom_target_for_focus(focused: object) -> str:
             return mapping[wid]
         w = getattr(w, "parent", None)
     return "zoom-center"
+
+
+def _focus_target_for_focus(focused: object) -> str:
+    mapping = {
+        "left": "focus-left",
+        "center": "focus-center",
+        "right": "focus-right",
+        "bottom_left": "focus-bottom-left",
+        "bottom_right": "focus-bottom-right",
+    }
+    w = focused
+    while w is not None:
+        wid = getattr(w, "id", None)
+        if isinstance(wid, str) and wid in mapping:
+            return mapping[wid]
+        w = getattr(w, "parent", None)
+    return "focus-center"
 
 
 def run_tui() -> None:

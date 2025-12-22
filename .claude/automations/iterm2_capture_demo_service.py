@@ -109,6 +109,42 @@ async def _wait_for_screen_not_contains(
     raise TimeoutError(msg)
 
 
+async def _open_command_palette(session: iterm2.Session, timeout_s: float) -> None:
+    for _ in range(3):
+        await session.async_send_text("\x10")  # Ctrl+P
+        try:
+            await _wait_for_screen_contains(session, "Command Palette", timeout_s=timeout_s)
+            return
+        except TimeoutError:
+            await asyncio.sleep(0.25)
+    raise TimeoutError("Timed out opening Command Palette")
+
+
+async def _run_palette_command(
+    session: iterm2.Session,
+    *,
+    query: str,
+    expect: str | None = None,
+    open_timeout_s: float = 6,
+    run_timeout_s: float = 8,
+) -> None:
+    """Open the palette, type a query, then run the first result.
+
+    This helper intentionally waits for `expect` (if provided) before pressing Enter
+    to avoid racing the palette's incremental filtering.
+    """
+
+    await _open_command_palette(session, timeout_s=open_timeout_s)
+    await asyncio.sleep(0.2)
+    if query:
+        await session.async_send_text(query)
+    if expect:
+        await _wait_for_screen_contains(session, expect, timeout_s=open_timeout_s)
+    await session.async_send_text("\r")
+    await _wait_for_screen_not_contains(session, "Command Palette", timeout_s=run_timeout_s)
+    await asyncio.sleep(0.25)
+
+
 async def main(connection: iterm2.Connection) -> None:
     _ensure_iterm2_running()
 
@@ -199,25 +235,16 @@ async def main(connection: iterm2.Connection) -> None:
     _screencapture(tui_paused_png)
 
     # Zoom Source pane (F2) via command palette to avoid terminal-specific function key sequences.
-    await tui.async_send_text("\x10")  # Ctrl+P
-    await _wait_for_screen_contains(tui, "Command Palette", timeout_s=6)
-    await asyncio.sleep(0.2)
-    await tui.async_send_text("zoom\r")
-    await _wait_for_screen_not_contains(tui, "Command Palette", timeout_s=8)
-    await asyncio.sleep(0.25)
-    await _wait_for_screen_contains(tui, "ZOOM", timeout_s=12)
+    await _run_palette_command(tui, query="view.zoom", expect="Zoom Pane")
+    # Verify by layout change (avoid depending on truncated status line).
+    await _wait_for_screen_not_contains(tui, "▊ Stack", timeout_s=12)
     (out_dir / "tui_demo_service_zoomed.txt").write_text(await _screen_text(tui), encoding="utf-8")
     tui_zoomed_png = out_dir / "tui_demo_service_zoomed.png"
     _screencapture(tui_zoomed_png)
 
     # Unzoom.
-    await tui.async_send_text("\x10")  # Ctrl+P
-    await _wait_for_screen_contains(tui, "Command Palette", timeout_s=6)
-    await asyncio.sleep(0.2)
-    await tui.async_send_text("zoom\r")
-    await _wait_for_screen_not_contains(tui, "Command Palette", timeout_s=8)
-    await asyncio.sleep(0.25)
-    await _wait_for_screen_not_contains(tui, "ZOOM", timeout_s=12)
+    await _run_palette_command(tui, query="view.zoom", expect="Zoom Pane")
+    await _wait_for_screen_contains(tui, "▊ Stack", timeout_s=12)
     (out_dir / "tui_demo_service_unzoomed.txt").write_text(
         await _screen_text(tui), encoding="utf-8"
     )
@@ -226,15 +253,21 @@ async def main(connection: iterm2.Connection) -> None:
 
     # Add configured breakpoints (logpoint + hit count) and verify they render in the Breakpoints pane.
     await tui.async_send_text("\x02")  # Ctrl+B
-    await _wait_for_screen_contains(tui, "Add breakpoint", timeout_s=6)
-    await asyncio.sleep(0.2)
+    try:
+        await _wait_for_screen_contains(tui, "Add breakpoint", timeout_s=2)
+    except TimeoutError:
+        await _run_palette_command(tui, query="breakpoint.add", expect="Add Breakpoint")
+        await _wait_for_screen_contains(tui, "Add breakpoint", timeout_s=6)
     await tui.async_send_text("examples/demo_service.py:128 log __YLOG__\r")
     await _wait_for_screen_not_contains(tui, "Add breakpoint", timeout_s=6)
     await asyncio.sleep(0.25)
 
     await tui.async_send_text("\x02")  # Ctrl+B
-    await _wait_for_screen_contains(tui, "Add breakpoint", timeout_s=6)
-    await asyncio.sleep(0.2)
+    try:
+        await _wait_for_screen_contains(tui, "Add breakpoint", timeout_s=2)
+    except TimeoutError:
+        await _run_palette_command(tui, query="breakpoint.add", expect="Add Breakpoint")
+        await _wait_for_screen_contains(tui, "Add breakpoint", timeout_s=6)
     await tui.async_send_text("examples/demo_service.py:190 hit 3\r")
     await _wait_for_screen_not_contains(tui, "Add breakpoint", timeout_s=6)
     await asyncio.sleep(0.25)

@@ -111,7 +111,10 @@ Rules:
   - source: “run to cursor” (paused) or “toggle breakpoint at cursor”
   - console: submit input
 - `Esc` is always “cancel/close/back” (never quit).
-- A single, high-contrast focus style is used everywhere (reverse/underline + caret marker).
+- Focus is always obvious:
+  - the focused pane gets an **accent border** (focus ring),
+  - lists/tables use a consistent “selected row” highlight (dim when unfocused, bright when focused),
+  - we never rely on subtle color alone (gutter markers, arrows, and header text still communicate state).
 
 ### 4.3 Command system (global + contextual)
 
@@ -176,7 +179,7 @@ No pill chips, no excessive padding, no decorative UI.
 - sticky view centered on current execution line when paused
 - shows breakpoint markers and current line indicator
 - optional inline value previews (paused-only, capped)
-- find within file (`Ctrl+F`, `/`)
+- find within file (`Ctrl+F`, `/`) via an **inline bottom bar** (never covers Source)
 
 #### Source: cursor model, run-to-cursor, and breakpoint gutter
 
@@ -257,6 +260,16 @@ Important behavior notes:
 Performance constraints:
 - Adding/removing the temporary breakpoint must be O(1) on the UI thread; DAP calls happen off-thread/async.
 - No “wait forever”: UI must remain responsive even if the target line is never reached (infinite loop, different code path, etc.).
+
+##### Inline find (Source) — terminal-first UX
+
+`Ctrl+F` (or `/`) opens a **compact, inline Find bar** docked at the bottom of Source.
+This is intentional: it preserves context and keeps the code visible while searching.
+
+Interaction rules:
+- typing updates the query; `Enter` finds next match, `Shift+Enter` finds previous,
+- match position is shown as `line:col`,
+- `Esc` closes find and returns focus to Source.
 
 ##### Source navigation: Find + Go to line
 

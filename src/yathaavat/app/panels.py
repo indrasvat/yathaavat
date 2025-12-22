@@ -286,13 +286,14 @@ class CodeView(TextArea):
             strip = apply_gutter_marker(strip, gutter_width=self.gutter_width, marker=EXEC_MARKER)
 
         if show_exec and self._exec_line == line_no:
-            strip = strip.apply_style(Style(bgcolor="#12324f"))
+            strip = strip.apply_style(Style(bgcolor="#17385a"))
 
         return strip
 
 
 class _FindInput(Input):
     BINDINGS: ClassVar[list[BindingType]] = [
+        Binding("ctrl+p", "app.open_palette", show=False),
         Binding("escape", "close_find", show=False),
         Binding("shift+enter", "find_prev", show=False),
     ]
@@ -884,6 +885,7 @@ class _ConsoleInput(Input):
     BINDINGS: ClassVar[list[BindingType]] = [
         Binding("up", "history_prev", show=False),
         Binding("down", "history_next", show=False),
+        Binding("ctrl+p", "app.open_palette", show=False),
         Binding("ctrl+f", "app.command('source.find')", show=False),
     ]
 

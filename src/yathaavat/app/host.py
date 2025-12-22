@@ -32,14 +32,14 @@ class TextualUiHost(UiHost):
             return
         action = getattr(self._app, "action_toggle_zoom", None)
         if callable(action):
-            self._app.call_after_refresh(action)
+            self._app.call_later(action)
 
     def open_source_find(self) -> None:
         if self._app is None:
             return
         action = getattr(self._app, "action_open_source_find", None)
         if callable(action):
-            self._app.call_after_refresh(action)
+            self._app.call_later(action)
 
     def push_screen(self, screen: Screen[object]) -> None:
         if self._app is None:
