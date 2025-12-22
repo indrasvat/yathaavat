@@ -264,8 +264,8 @@ Debugging often requires scanning unfamiliar code quickly. Source supports light
 - **Go to line** (`Ctrl+G`): jump to `line[:col]` in the currently open Source file.
 
 Design notes:
-- These are implemented as small modal dialogs (fast, discoverable via palette).
-- Future v2 polish can add incremental search, “find next/prev”, and persistent search UI, but the default remains minimal and snappy.
+- **Find** is implemented as a compact bottom overlay (modal) that keeps the Source panel visible while searching.
+- Future v2 polish can add incremental search (live as-you-type), “find next/prev”, and a persistent inline search bar scoped to Source, but the default remains minimal and snappy.
 
 **Stack**
 - thread selector (if multiple threads)

@@ -138,16 +138,20 @@ class YathaavatApp(App[None]):
     #bp_hint { margin-top: 1; color: #93a4c7; }
 
     #find_root {
-      width: 70%;
-      max-width: 110;
-      height: 30%;
+      dock: bottom;
+      margin: 0 2 1 2;
+      width: 1fr;
+      max-width: 140;
+      height: 8;
       border: round #2a3b52;
       background: #0f1520;
       padding: 1 1;
     }
-    #find_title { color: #8bd5ff; height: 1; }
-    #find_input { margin-top: 1; }
-    #find_hint { margin-top: 1; color: #93a4c7; }
+    #find_row { height: 3; }
+    #find_title { color: #8bd5ff; width: 6; }
+    #find_input { width: 1fr; margin: 0 1; }
+    #find_status { color: #93a4c7; width: 14; }
+    #find_hint { margin-top: 0; color: #93a4c7; height: 1; }
 
     #goto_root {
       width: 70%;

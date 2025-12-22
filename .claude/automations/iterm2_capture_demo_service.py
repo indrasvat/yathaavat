@@ -204,16 +204,17 @@ async def main(connection: iterm2.Connection) -> None:
 
     # Find in Source (Ctrl+F). This is intentionally tested while Source is focused.
     await tui.async_send_text("\x06")  # Ctrl+F
-    await _wait_for_screen_contains(tui, "Find in Source", timeout_s=6)
+    await _wait_for_screen_contains(tui, "Enter next", timeout_s=6)
     await asyncio.sleep(0.2)
     await tui.async_send_text("debugpy\r")
-    await _wait_for_screen_contains(tui, "Match at", timeout_s=6)
+    await asyncio.sleep(0.25)
+    (out_dir / "tui_demo_service_find.txt").write_text(await _screen_text(tui), encoding="utf-8")
     tui_find_png = out_dir / "tui_demo_service_find.png"
     _screencapture(tui_find_png)
 
     # Close Find.
     await tui.async_send_text("\x1b")  # Escape
-    await _wait_for_screen_not_contains(tui, "Find in Source", timeout_s=6)
+    await _wait_for_screen_not_contains(tui, "Enter next", timeout_s=6)
     await asyncio.sleep(0.2)
 
     # Step over.

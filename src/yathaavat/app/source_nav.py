@@ -6,7 +6,7 @@ from typing import ClassVar, cast
 from textual import on
 from textual.app import ComposeResult
 from textual.binding import BindingType
-from textual.containers import Container
+from textual.containers import Container, Horizontal
 from textual.document._document import Document, Selection
 from textual.screen import ModalScreen
 from textual.widgets import Input, Static, TextArea
@@ -53,13 +53,18 @@ class FindDialog(ModalScreen[None]):
 
     def compose(self) -> ComposeResult:
         yield Container(
-            Static("Find in Source", id="find_title"),
-            Input(placeholder="search text", id="find_input"),
-            Static("Enter to find next • Esc to close", id="find_hint"),
+            Horizontal(
+                Static("Find", id="find_title"),
+                Input(placeholder="type to search…", id="find_input"),
+                Static("", id="find_status"),
+                id="find_row",
+            ),
+            Static("Enter next  •  Esc close", id="find_hint"),
             id="find_root",
         )
 
     def on_mount(self) -> None:
+        self.styles.background = "transparent"
         self.query_one(Input).focus()
 
     @on(Input.Submitted, "#find_input")
@@ -90,7 +95,8 @@ class FindDialog(ModalScreen[None]):
         if found < 0:
             found = text.find(query, 0)
         if found < 0:
-            self.query_one("#find_hint", Static).update("No matches.")
+            self.query_one("#find_hint", Static).update("No matches.  •  Esc close")
+            self.query_one("#find_status", Static).update("0")
             return
 
         start_loc = doc.get_location_from_index(found)
@@ -104,8 +110,9 @@ class FindDialog(ModalScreen[None]):
             source_line=start_loc[0] + editor.line_number_start,
             source_col=start_loc[1] + 1,
         )
-        self.query_one("#find_hint", Static).update(
-            f"Match at {start_loc[0] + editor.line_number_start}:{start_loc[1] + 1}"
+        self.query_one("#find_hint", Static).update("Enter next  •  Esc close")
+        self.query_one("#find_status", Static).update(
+            f"{start_loc[0] + editor.line_number_start}:{start_loc[1] + 1}"
         )
 
 
@@ -125,6 +132,7 @@ class GotoDialog(ModalScreen[None]):
         )
 
     def on_mount(self) -> None:
+        self.styles.background = "transparent"
         self.query_one(Input).focus()
 
     @on(Input.Submitted, "#goto_input")
