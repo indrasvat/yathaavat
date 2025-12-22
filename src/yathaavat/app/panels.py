@@ -11,6 +11,7 @@ from textual import on
 from textual.app import ComposeResult
 from textual.binding import Binding, BindingType
 from textual.containers import Container
+from textual.events import MouseDown
 from textual.strip import Strip
 from textual.widgets import DataTable, Input, ListItem, ListView, RichLog, Static, TextArea
 
@@ -164,6 +165,10 @@ class CodeView(TextArea):
         Binding("home", "cursor_line_start", show=False),
         Binding("end", "cursor_line_end", show=False),
         Binding("ctrl+f", "app.command('source.find')", show=False),
+        Binding("ctrl+g", "app.command('source.goto')", show=False),
+        Binding("enter", "app.command('debug.run_to_cursor')", show=False),
+        Binding("b", "app.command('breakpoint.toggle')", show=False),
+        Binding("y", "copy_selection", show=False),
     ]
 
     def __init__(self) -> None:
@@ -182,6 +187,33 @@ class CodeView(TextArea):
         self._markers: dict[int, GutterMarker] = {}
         self._exec_path: str | None = None
         self._exec_line: int | None = None
+
+    def line_number_at_viewport_y(self, y: int) -> int | None:
+        scroll_x, scroll_y = self.scroll_offset
+        _ = scroll_x
+
+        wrapped_document = self.wrapped_document
+        absolute_y = int(scroll_y) + y
+        if absolute_y < 0 or absolute_y >= wrapped_document.height:
+            return None
+
+        try:
+            line_info = wrapped_document._offset_to_line_info[absolute_y]
+        except IndexError:
+            return None
+        if line_info is None:
+            return None
+
+        line_index, _section_offset = line_info
+        return int(line_index) + self.line_number_start
+
+    def action_copy_selection(self) -> None:
+        text = self.selected_text
+        if not text:
+            self.app.notify("Nothing selected.", timeout=1.2)
+            return
+        self.app.copy_to_clipboard(text)
+        self.app.notify("Copied selection.", timeout=1.2)
 
     def set_breakpoints(self, breakpoints: tuple[BreakpointInfo, ...]) -> None:
         markers = {bp.line: marker_for_breakpoint(bp) for bp in breakpoints}
@@ -241,12 +273,14 @@ class CodeView(TextArea):
 class SourcePanel(Container):
     def __init__(self, *, ctx: AppContext) -> None:
         super().__init__()
+        self._ctx = ctx
         self._store = _get_store(ctx)
         self._unsubscribe: Callable[[], None] | None = None
         self._path: str | None = None
         self._line: int | None = None
         self._col: int | None = None
         self._syncing_cursor = False
+        self._tasks: set[asyncio.Task[None]] = set()
 
     def compose(self) -> ComposeResult:
         yield Static("", id="source_header")
@@ -281,6 +315,52 @@ class SourcePanel(Container):
         ):
             return
         self._store.update(source_path=editor.path, source_line=line, source_col=col1)
+
+    @on(MouseDown, "#source_view")
+    def _on_gutter_click(self, event: MouseDown) -> None:
+        if event.button != 1:
+            return
+
+        editor = event.widget
+        if not isinstance(editor, CodeView):
+            return
+
+        offset = event.get_content_offset(editor)
+        if offset is None:
+            return
+
+        # Only treat clicks in the line-number gutter as breakpoint toggles.
+        if int(offset.x) >= editor.gutter_width:
+            return
+
+        path = editor.path
+        if not isinstance(path, str) or not path:
+            return
+
+        line = editor.line_number_at_viewport_y(int(offset.y))
+        if line is None:
+            return
+
+        # Move the Source cursor to the clicked line (useful for run-to-cursor + local commands).
+        self._store.update(source_path=path, source_line=line, source_col=1)
+
+        manager = _get_manager(self._ctx)
+        if manager is None:
+            self._ctx.host.notify("No session.", timeout=2.0)
+            return
+
+        async def _toggle() -> None:
+            try:
+                await manager.toggle_breakpoint(path, line)
+            except Exception as exc:
+                self._ctx.host.notify(str(exc), timeout=2.5)
+
+        task = asyncio.create_task(_toggle())
+        self._tasks.add(task)
+        task.add_done_callback(self._tasks.discard)
+
+        event.stop()
+        event.prevent_default()
 
     def _on_snapshot(self, snapshot: SessionSnapshot) -> None:
         header = self.query_one("#source_header", Static)

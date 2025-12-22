@@ -143,6 +143,18 @@ class BuiltinPlugin(Plugin):
                 return
 
             try:
+                frame_id = snap.selected_frame_id or (snap.frames[0].id if snap.frames else None)
+                frame = next((f for f in snap.frames if f.id == frame_id), None)
+                if frame is not None and frame.path and isinstance(frame.line, int):
+                    # If the cursor is still on the current execution line, "run to cursor"
+                    # doesn't add value and can feel like a no-op (resume → stop again).
+                    if frame.path == path and frame.line == line:
+                        host.notify(
+                            "Move the Source cursor to a target line, then press Enter / "
+                            "run-to-cursor.",
+                            timeout=2.5,
+                        )
+                        return
                 await session.run_to_cursor(path, line)
             except Exception as exc:
                 host.notify(str(exc), timeout=2.5)
