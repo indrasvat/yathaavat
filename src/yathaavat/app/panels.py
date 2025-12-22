@@ -295,6 +295,8 @@ class _FindInput(Input):
     BINDINGS: ClassVar[list[BindingType]] = [
         Binding("ctrl+p", "app.open_palette", show=False),
         Binding("escape", "close_find", show=False),
+        Binding("f3", "find_next", show=False),
+        Binding("shift+f3", "find_prev", show=False),
         Binding("shift+enter", "find_prev", show=False),
     ]
 
@@ -305,8 +307,11 @@ class _FindInput(Input):
     def action_close_find(self) -> None:
         self._owner._close_find()
 
+    def action_find_next(self) -> None:
+        self._owner._find_in_source(self.value, direction="next", include_current=False)
+
     def action_find_prev(self) -> None:
-        self._owner._find_in_source(self.value, direction="prev")
+        self._owner._find_in_source(self.value, direction="prev", include_current=False)
 
 
 class SourcePanel(Container):
@@ -321,6 +326,8 @@ class SourcePanel(Container):
         self._syncing_cursor = False
         self._tasks: set[asyncio.Task[None]] = set()
         self._find_open = False
+        self._find_task: asyncio.Task[None] | None = None
+        self._find_query: str = ""
 
     def compose(self) -> ComposeResult:
         yield Static("", id="source_header")
@@ -344,6 +351,8 @@ class SourcePanel(Container):
     def on_unmount(self) -> None:
         if self._unsubscribe is not None:
             self._unsubscribe()
+        if self._find_task is not None:
+            self._find_task.cancel()
 
     def open_find(self) -> None:
         """Open the inline Find bar for the Source panel."""
@@ -374,6 +383,10 @@ class SourcePanel(Container):
     def _close_find(self) -> None:
         if not self._find_open:
             return
+        if self._find_task is not None:
+            self._find_task.cancel()
+            self._find_task = None
+        self._find_query = ""
         self._find_open = False
         find_root = self.query_one("#find_root", Container)
         find_root.styles.display = "none"
@@ -383,9 +396,39 @@ class SourcePanel(Container):
 
     @on(Input.Submitted, "#find_input")
     def _on_find_submit(self, event: Input.Submitted) -> None:
-        self._find_in_source(event.value, direction="next")
+        self._find_in_source(event.value, direction="next", include_current=False)
 
-    def _find_in_source(self, query: str, *, direction: str) -> None:
+    @on(Input.Changed, "#find_input")
+    def _on_find_changed(self, event: Input.Changed) -> None:
+        q = event.value.strip()
+        self._find_query = q
+        if self._find_task is not None:
+            self._find_task.cancel()
+            self._find_task = None
+
+        find_hint = self.query_one("#find_hint", Static)
+        find_status = self.query_one("#find_status", Static)
+        if not q:
+            find_hint.update("Enter next  •  Shift+Enter prev  •  Esc close")
+            find_status.update("")
+            return
+
+        self._find_task = asyncio.create_task(self._find_debounced(q))
+
+    async def _find_debounced(self, query: str) -> None:
+        try:
+            await asyncio.sleep(0.12)
+        except asyncio.CancelledError:
+            return
+
+        if not self._find_open:
+            return
+        current = self.query_one("#find_input", Input).value.strip()
+        if current != query:
+            return
+        self._find_in_source(query, direction="next", include_current=True)
+
+    def _find_in_source(self, query: str, *, direction: str, include_current: bool) -> None:
         q = query.strip()
         if not q:
             return
@@ -402,6 +445,8 @@ class SourcePanel(Container):
             return
 
         start_index = doc.get_index_from_location(editor.cursor_location)
+        if include_current:
+            start_index = max(start_index - 1, -1)
         found = (
             find_prev_index(text, q, start_index)
             if direction == "prev"

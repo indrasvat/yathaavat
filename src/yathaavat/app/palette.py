@@ -4,6 +4,7 @@ import asyncio
 from dataclasses import dataclass
 from typing import ClassVar
 
+from rich.text import Text
 from textual import on
 from textual.app import ComposeResult
 from textual.binding import BindingType
@@ -12,6 +13,7 @@ from textual.reactive import reactive
 from textual.screen import ModalScreen
 from textual.widgets import Input, ListItem, ListView, Static
 
+from yathaavat.app.fuzzy import fuzzy_match
 from yathaavat.app.keys import format_keys
 from yathaavat.core import AppContext
 
@@ -37,7 +39,7 @@ class CommandPalette(ModalScreen[None]):
     def compose(self) -> ComposeResult:
         yield Container(
             Static("Command Palette", id="pal_title"),
-            Input(placeholder="Type to search…", id="pal_input"),
+            Input(placeholder="Type to search (fuzzy)…", id="pal_input"),
             ListView(id="pal_list"),
             id="pal_root",
         )
@@ -75,9 +77,9 @@ class CommandPalette(ModalScreen[None]):
         task.add_done_callback(self._tasks.discard)
 
     def _items(self) -> list[PaletteItem]:
-        out: list[PaletteItem] = []
-        for cmd in sorted(self._ctx.commands.all(), key=lambda c: c.spec.title.lower()):
-            out.append(
+        items: list[PaletteItem] = []
+        for cmd in self._ctx.commands.all():
+            items.append(
                 PaletteItem(
                     id=cmd.spec.id,
                     title=cmd.spec.title,
@@ -85,19 +87,37 @@ class CommandPalette(ModalScreen[None]):
                     key_hint=format_keys(cmd.spec.default_keys),
                 )
             )
-        q = self.query_text.strip().lower()
+
+        q = self.query_text.strip()
         if not q:
-            return out
-        return [
-            i for i in out if q in i.title.lower() or q in i.id.lower() or q in i.summary.lower()
-        ]
+            return sorted(items, key=lambda i: i.title.lower())
+
+        scored: list[tuple[int, PaletteItem]] = []
+        for it in items:
+            haystack = f"{it.title} {it.id} {it.summary}"
+            match = fuzzy_match(q, haystack)
+            if match is None:
+                continue
+            scored.append((match.score, it))
+
+        scored.sort(key=lambda pair: (pair[0], pair[1].title.lower()))
+        return [it for _score, it in scored]
 
     def _refresh_results(self) -> None:
         lv = self.query_one(ListView)
         lv.clear()
         items = self._items()
         for it in items:
-            li = ListItem(Static(f"{it.title}  [{it.id}]  {it.key_hint}", classes="pal_row"))
+            text = Text()
+            text.append(it.title, style="bold")
+            if it.key_hint:
+                text.append(f"  {it.key_hint}", style="dim")
+            text.append("\n")
+            if it.summary:
+                text.append(it.summary, style="dim")
+                text.append("  ")
+            text.append(f"[{it.id}]", style="dim")
+            li = ListItem(Static(text, classes="pal_row"))
             li.cmd_id = it.id  # type: ignore[attr-defined]
             lv.append(li)
         lv.index = 0 if items else None

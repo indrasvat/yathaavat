@@ -267,7 +267,8 @@ Performance constraints:
 This is intentional: it preserves context and keeps the code visible while searching.
 
 Interaction rules:
-- typing updates the query; `Enter` finds next match, `Shift+Enter` finds previous,
+- typing updates the query and (debounced) jumps to the next match,
+- `Enter` / `F3` finds next match, `Shift+Enter` / `Shift+F3` finds previous,
 - match position is shown as `line:col`,
 - `Esc` closes find and returns focus to Source.
 
@@ -280,7 +281,7 @@ Debugging often requires scanning unfamiliar code quickly. Source supports light
 
 Design notes:
 - **Find** is implemented as a compact bottom overlay that keeps Source visible while searching (so you can confirm context while iterating matches).
-- Future v2 polish can add incremental search (live as-you-type) and match counts/highlight-all, but the default remains minimal and snappy.
+- Future v2 polish can add match counts and highlight-all, but the default remains minimal and snappy.
 
 **Stack**
 - thread selector (if multiple threads), surfaced as a **Threads** tab/pane
