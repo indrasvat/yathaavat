@@ -17,6 +17,7 @@ from textual.strip import Strip
 from textual.widgets import DataTable, Input, ListItem, ListView, RichLog, Static, TextArea
 
 from yathaavat.app.breakpoint import BreakpointEditDialog
+from yathaavat.app.expression import ExpressionInput
 from yathaavat.app.input_history import InputHistory
 from yathaavat.app.search import find_next_index, find_prev_index
 from yathaavat.app.source_gutter import (
@@ -914,13 +915,18 @@ class ConsolePanel(Container):
 
     def compose(self) -> ComposeResult:
         yield RichLog(id="console_log", max_lines=300, wrap=True, auto_scroll=True)
-        yield _ConsoleInput(history=self._history)
+        yield Horizontal(
+            Static(">>>", id="console_prompt"),
+            ExpressionInput(ctx=self._ctx, history=self._history, id="console_input"),
+            id="console_row",
+        )
 
-    @on(Input.Submitted, "#console_input")
-    def _on_submit(self, event: Input.Submitted) -> None:
-        expr = event.value.strip()
-        self._history.push(expr)
-        event.input.value = ""
+    @on(ExpressionInput.Submitted, "#console_input")
+    def _on_submit(self, event: ExpressionInput.Submitted) -> None:
+        expr = event.text.strip()
+        control = event.control
+        if isinstance(control, ExpressionInput):
+            control.clear()
         if not expr:
             return
         manager = _get_manager(self._ctx)
@@ -944,30 +950,3 @@ class ConsolePanel(Container):
         log = self.query_one("#console_log", RichLog)
         for line in text.splitlines():
             log.write(line)
-
-
-class _ConsoleInput(Input):
-    BINDINGS: ClassVar[list[BindingType]] = [
-        Binding("up", "history_prev", show=False),
-        Binding("down", "history_next", show=False),
-        Binding("ctrl+p", "app.open_palette", show=False),
-        Binding("ctrl+f", "app.command('source.find')", show=False),
-    ]
-
-    def __init__(self, *, history: InputHistory) -> None:
-        super().__init__(placeholder=">>>", id="console_input")
-        self._history = history
-
-    def action_history_prev(self) -> None:
-        value = self._history.prev(self.value)
-        if value is None:
-            return
-        self.value = value
-        self.cursor_position = len(self.value)
-
-    def action_history_next(self) -> None:
-        value = self._history.next()
-        if value is None:
-            return
-        self.value = value
-        self.cursor_position = len(self.value)

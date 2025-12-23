@@ -23,6 +23,7 @@ from yathaavat.core import (
     BreakpointInfo,
     Command,
     CommandSpec,
+    CompletionItem,
     FrameInfo,
     Plugin,
     SessionState,
@@ -71,6 +72,59 @@ def _parse_variables(items: list[object]) -> list[VariableInfo]:
             )
         )
     return variables
+
+
+def _infer_completion_span(text: str, cursor: int) -> tuple[int, int]:
+    """Infer a sensible replacement span for REPL-style Python completions.
+
+    This is used as a fallback when the adapter doesn't provide a range.
+    """
+
+    cursor = max(0, min(cursor, len(text)))
+    start = cursor
+    while start > 0:
+        ch = text[start - 1]
+        if ch.isalnum() or ch == "_":
+            start -= 1
+            continue
+        break
+    return start, cursor - start
+
+
+def _parse_completion_targets(
+    response: dict[str, object], *, text: str, cursor: int
+) -> tuple[CompletionItem, ...]:
+    fallback_start, fallback_len = _infer_completion_span(text, cursor)
+    out: list[CompletionItem] = []
+    for raw in _as_list(_body(response).get("targets")):
+        if not isinstance(raw, dict):
+            continue
+        label = raw.get("label")
+        if not isinstance(label, str) or not label:
+            continue
+        insert = raw.get("text")
+        insert_text = insert if isinstance(insert, str) and insert else label
+
+        start_raw = raw.get("start")
+        length_raw = raw.get("length")
+        start = start_raw if isinstance(start_raw, int) else fallback_start
+        length = length_raw if isinstance(length_raw, int) else fallback_len
+        if start < 0 or length < 0 or start > len(text) or start + length > len(text):
+            start, length = fallback_start, fallback_len
+
+        ctype = raw.get("type")
+        out.append(
+            CompletionItem(
+                label=label,
+                insert_text=insert_text,
+                replace_start=start,
+                replace_length=length,
+                type=ctype if isinstance(ctype, str) else None,
+            )
+        )
+
+    out.sort(key=lambda item: item.label)
+    return tuple(out)
 
 
 @dataclass(frozen=True, slots=True)
@@ -377,6 +431,21 @@ class DebugpySessionManager(SessionManager):
             args["frameId"] = frame_id
         resp = await dap.request("evaluate", args)
         return str(_body(resp).get("result") or "")
+
+    async def complete(self, text: str, *, cursor: int) -> tuple[CompletionItem, ...]:
+        dap = self._require_dap()
+        snap = self.store.snapshot()
+        frame_id = snap.selected_frame_id
+
+        args: dict[str, object] = {"text": text, "column": max(1, int(cursor) + 1)}
+        if isinstance(frame_id, int) and snap.state == SessionState.PAUSED:
+            args["frameId"] = frame_id
+
+        try:
+            resp = await dap.request("completions", args, timeout_s=3.0)
+        except Exception:
+            return ()
+        return _parse_completion_targets(resp, text=text, cursor=cursor)
 
     async def get_variables(self, variables_reference: int) -> tuple[VariableInfo, ...]:
         if variables_reference <= 0:

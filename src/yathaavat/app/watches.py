@@ -11,8 +11,9 @@ from textual.app import ComposeResult
 from textual.binding import BindingType
 from textual.containers import Container, Horizontal
 from textual.screen import ModalScreen
-from textual.widgets import DataTable, Input, Static
+from textual.widgets import DataTable, Static
 
+from yathaavat.app.expression import ExpressionInput
 from yathaavat.core import (
     SESSION_MANAGER,
     SESSION_STORE,
@@ -48,7 +49,9 @@ class AddWatchDialog(ModalScreen[None]):
         yield Container(
             Horizontal(
                 Static("Watch", id="watch_title"),
-                Input(placeholder="expression (e.g. order.total)", id="watch_input"),
+                ExpressionInput(
+                    ctx=self._ctx, placeholder="expression (e.g. order.total)", id="watch_input"
+                ),
                 Static("", id="watch_status"),
                 id="watch_row",
             ),
@@ -58,11 +61,11 @@ class AddWatchDialog(ModalScreen[None]):
 
     def on_mount(self) -> None:
         self.styles.background = "transparent"
-        self.query_one(Input).focus()
+        self.query_one(ExpressionInput).focus_input()
 
-    @on(Input.Submitted, "#watch_input")
-    def _on_submit(self, event: Input.Submitted) -> None:
-        expr = event.value.strip()
+    @on(ExpressionInput.Submitted, "#watch_input")
+    def _on_submit(self, event: ExpressionInput.Submitted) -> None:
+        expr = event.text.strip()
         if not expr:
             return
 
@@ -74,7 +77,9 @@ class AddWatchDialog(ModalScreen[None]):
             return
 
         store.update(watches=(*snap.watches, WatchInfo(expression=expr)))
-        event.input.value = ""
+        control = event.control
+        if isinstance(control, ExpressionInput):
+            control.clear()
         self.query_one("#watch_status", Static).update("added")
 
 

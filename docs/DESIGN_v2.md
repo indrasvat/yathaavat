@@ -106,7 +106,8 @@ Definitions:
 - **Cursor**: the location inside a text view (source, console input).
 
 Rules:
-- `Tab` / `Shift+Tab` cycles focus between major panes.
+- `Tab` / `Shift+Tab` cycles focus between major panes (except inside expression editors, where `Tab` is reserved for completion).
+- `F6` / `Shift+F6` always cycles focus (works everywhere, including expression editors).
 - `Enter` triggers the focused pane’s primary action:
   - lists/trees: open/expand/jump
   - source: “run to cursor” (paused) or “toggle breakpoint at cursor”
@@ -356,8 +357,27 @@ Breakpoints can be created while disconnected and are **queued**:
 This keeps workflows frictionless: you can prepare breakpoints before connecting to a long-running process.
 
 **Console**
-- input: multiline, history, completion (best-effort), safe paste
+- input: expression editor (Python highlight), history, `Tab` completion (best-effort), safe paste
 - output: structured (stdout/stderr/debugger output separated)
+
+#### Console & Watches: the Expression Editor (completion + highlight)
+
+Console and Watch-add use the same “expression editor” primitive: a single-line Python editor that feels IDE-like but remains terminal-native.
+
+Goals:
+- **Developer delight**: `Tab` completion for attributes and names (the REPL loop is fast).
+- **Context aware**: uses the **active frame** while paused so `order.` completes correctly.
+- **Never blocks UI**: best-effort requests with tight timeouts and cancellation on continued typing.
+
+Interaction:
+- `Enter`: submit expression (Console eval / Watch add).
+- `↑` / `↓`: history in Console (no-op in Watch add).
+- `Tab`: request completions (or accept the selected completion if already open).
+- `Esc`: close the completion list (never quits).
+
+Backend contract:
+- Prefer DAP `completions` with `frameId` when paused.
+- If the backend does not support completions (or returns nothing), the UI stays responsive and simply shows no list.
 
 **Transcript**
 - append-only timeline: user commands + backend events + stdout/stderr

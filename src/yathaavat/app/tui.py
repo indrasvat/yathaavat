@@ -125,7 +125,9 @@ class YathaavatApp(App[None]):
     #breakpoints_table { height: 1fr; background: $bg; }
 
     #console_log { height: 1fr; background: $bg; }
-    #console_input { height: 1; border: none; background: $bg_panel_muted; padding: 0 1; }
+    #console_row { height: auto; background: $bg_panel_muted; }
+    #console_prompt { width: 4; color: $fg_muted; background: $bg_panel_muted; padding: 0 1; }
+    #console_input { width: 1fr; background: $bg_panel_muted; }
 
     #transcript_log { height: 1fr; background: $bg; }
 
@@ -263,7 +265,7 @@ class YathaavatApp(App[None]):
       background: $bg_modal;
       padding: 1 1;
     }
-    #watch_row { height: 3; }
+    #watch_row { height: auto; }
     #watch_title { color: $accent; width: 6; }
     #watch_input { width: 1fr; margin: 0 1; }
     #watch_status { color: $fg_muted; width: 8; }
@@ -272,11 +274,32 @@ class YathaavatApp(App[None]):
     /* Inputs: compact by default, obvious focus. */
     Input { background: $bg_panel_muted; color: $fg; border: tall $border; padding: 0 1; }
     Input:focus { border: tall $border_focus; }
-    #console_input, #find_input { border: none; background: $bg_panel_muted; padding: 0 1; }
+    #find_input { border: none; background: $bg_panel_muted; padding: 0 1; }
+
+    /* Expression editors (console/watch): TextArea + inline completion list. */
+    .expr_area {
+      height: 1;
+      border: none;
+      background: $bg_panel_muted;
+      padding: 0 1;
+    }
+    .expr_completions {
+      height: 6;
+      margin: 0 0;
+      border: tall $border;
+      background: $bg_modal;
+    }
+    #watch_input .expr_completions { height: 4; }
+    .expr_completions:focus {
+      border: tall $border_focus;
+    }
+    .expr_completion_row { color: $fg; }
     """
 
     BINDINGS: ClassVar[list[BindingType]] = [
         ("ctrl+p", "open_palette", "Palette"),
+        ("f6", "focus_next", "Focus"),
+        ("shift+f6", "focus_previous", "Focus (prev)"),
         ("ctrl+\\", "command('session.disconnect')", "Disconnect"),
         ("ctrl+d", "command('session.disconnect')", "Disconnect (alt)"),
         ("ctrl+shift+\\", "command('session.terminate')", "Terminate"),

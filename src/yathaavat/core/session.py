@@ -56,6 +56,15 @@ class WatchInfo:
 
 
 @dataclass(frozen=True, slots=True)
+class CompletionItem:
+    label: str
+    insert_text: str
+    replace_start: int
+    replace_length: int
+    type: str | None = None
+
+
+@dataclass(frozen=True, slots=True)
 class SessionSnapshot:
     state: SessionState = SessionState.DISCONNECTED
     backend: str = ""
@@ -182,6 +191,11 @@ class BreakpointConfigManager(SessionManager, Protocol):
         hit_condition: str | None = None,
         log_message: str | None = None,
     ) -> None: ...
+
+
+@runtime_checkable
+class CompletionsManager(SessionManager, Protocol):
+    async def complete(self, text: str, *, cursor: int) -> tuple[CompletionItem, ...]: ...
 
 
 SESSION_STORE: ServiceKey[SessionStore] = ServiceKey("session.store")
