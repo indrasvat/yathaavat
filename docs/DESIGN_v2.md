@@ -95,6 +95,7 @@ UI rules:
 - State is always visible in the status line.
 - Any transition that can fail has an explicit UX branch (with a recovery action).
 - “Running vs Paused” drives which panels are live-updating and which are frozen snapshots.
+- **Attach-first UX**: `Ctrl+A` prefers “connect if already listening” (detect DAP ports on the selected PID), otherwise falls back to safe attach (`sys.remote_exec`) or classic `debugpy --pid` injection depending on platform/policy.
 
 ### 4.2 Focus and selection model
 
@@ -440,6 +441,7 @@ Because `remote_exec()` returns immediately, yathaavat defines a handshake:
 1. yathaavat creates a temp directory (shared FS) with:
    - `bootstrap.py` (the injected script)
    - `handshake.json` (written by the target on success or failure)
+   - **macOS note**: if yathaavat runs as `root` and the target is non-root, the directory must be owned/writable by the target (or use a root-owned but target-writable status file). Use `/tmp` for cross-user compatibility; avoid root-only cache locations.
 2. `bootstrap.py` runs in the target and:
    - records basic identity: pid, python version, timestamp
    - attempts to start the chosen backend (initially debugpy listener on loopback)

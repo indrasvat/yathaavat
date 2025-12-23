@@ -275,7 +275,13 @@ class YathaavatApp(App[None]):
     #console_input, #find_input { border: none; background: $bg_panel_muted; padding: 0 1; }
     """
 
-    BINDINGS: ClassVar[list[BindingType]] = [("ctrl+p", "open_palette", "Palette")]
+    BINDINGS: ClassVar[list[BindingType]] = [
+        ("ctrl+p", "open_palette", "Palette"),
+        ("ctrl+\\", "command('session.disconnect')", "Disconnect"),
+        ("ctrl+d", "command('session.disconnect')", "Disconnect (alt)"),
+        ("ctrl+shift+\\", "command('session.terminate')", "Terminate"),
+        ("ctrl+x", "command('session.terminate')", "Terminate (alt)"),
+    ]
     ENABLE_COMMAND_PALETTE: ClassVar[bool] = False
 
     def __init__(self, *, ctx: AppContext, plugin_errors: list[str]) -> None:
@@ -467,7 +473,8 @@ def _help_text(ctx: AppContext) -> str:
             return None
         if not cmd.spec.default_keys:
             return title
-        key = format_key(cmd.spec.default_keys[0])
+        keys = cmd.spec.default_keys[:2]
+        key = " / ".join(format_key(k) for k in keys)
         return f"{key} {title}".strip()
 
     parts = [

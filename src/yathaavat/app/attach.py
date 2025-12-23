@@ -1,9 +1,11 @@
 from __future__ import annotations
 
 import asyncio
+import json
 import os
 import re
 import shlex
+import subprocess
 import sys
 from dataclasses import dataclass
 from typing import ClassVar
@@ -124,7 +126,16 @@ class AttachPicker(ModalScreen[None]):
 
         async def _attach() -> None:
             try:
-                if isinstance(dap_endpoint, tuple) and len(dap_endpoint) == 2:
+                inferred: tuple[str, int] | None = None
+                if dap_endpoint is None:
+                    inferred = await _infer_debugpy_dap_endpoint(pid)
+                if inferred is not None:
+                    host, port = inferred
+                    self._ctx.host.notify(
+                        f"Found debugpy on {host}:{port}. Connecting…", timeout=2.0
+                    )
+                    await manager.connect(host, port)
+                elif isinstance(dap_endpoint, tuple) and len(dap_endpoint) == 2:
                     host, port = dap_endpoint
                     if not isinstance(host, str) or not isinstance(port, int):
                         raise TypeError("Invalid DAP endpoint")
@@ -187,11 +198,14 @@ class AttachPicker(ModalScreen[None]):
         for proc in self._processes:
             if not self.show_non_python and not proc.is_python:
                 continue
-            dap_endpoint = _debugpy_dap_endpoint(proc.args)
-            safe_attach_candidate = proc.python_version_hint == "3.14"
+            adapter_endpoint = _debugpy_adapter_endpoint(proc.args)
+            is_adapter = adapter_endpoint is not None
+            dap_endpoint = _debugpy_dap_endpoint(proc.args) or adapter_endpoint
+            safe_attach_candidate = proc.python_version_hint == "3.14" and not is_adapter
             safe_attach_enabled = safe_attach_candidate and _safe_attach_enabled()
             py = f"  py{proc.python_version_hint or ''}".rstrip() if proc.is_python else ""
-            label = f"{proc.pid:>6}  {proc.command}{py}"
+            name = "debugpy.adapter" if is_adapter else proc.command
+            label = f"{proc.pid:>6}  {name}{py}"
             if dap_endpoint is not None:
                 host, port = dap_endpoint
                 label = f"{label}  dap {host}:{port}"
@@ -293,3 +307,226 @@ def _debugpy_dap_endpoint(args: str) -> tuple[str, int] | None:
     if port is None:
         return None
     return host, port
+
+
+_LSOF_LISTEN_RE = re.compile(r"TCP\s+(?P<addr>\S+?):(?P<port>\d+)\s+\(LISTEN\)")
+_LSOF_ESTABLISHED_RE = re.compile(
+    r"TCP\s+(?P<laddr>\S+?):(?P<lport>\d+)->(?P<raddr>\S+?):(?P<rport>\d+)\s+\(ESTABLISHED\)"
+)
+
+
+def _is_debugpy_adapter_args(args: str) -> bool:
+    return "debugpy/adapter" in args or "debugpy.adapter" in args
+
+
+def _is_loopback(addr: str) -> bool:
+    if addr.startswith("[") and addr.endswith("]"):
+        addr = addr[1:-1]
+    return addr in {"127.0.0.1", "::1", "localhost"}
+
+
+def _debugpy_adapter_endpoint(args: str) -> tuple[str, int] | None:
+    if not _is_debugpy_adapter_args(args):
+        return None
+    try:
+        tokens = shlex.split(args, posix=True)
+    except ValueError:
+        tokens = args.split()
+    host = "127.0.0.1"
+    port: int | None = None
+    for idx, token in enumerate(tokens):
+        if token == "--host" and idx + 1 < len(tokens):
+            host = tokens[idx + 1]
+        elif token == "--port" and idx + 1 < len(tokens):
+            try:
+                port = int(tokens[idx + 1])
+            except ValueError:
+                port = None
+    if port is None:
+        return None
+    return host, port
+
+
+def _list_listening_tcp_endpoints(pid: int) -> list[tuple[str, int]]:
+    """Best-effort `lsof` probe for LISTEN sockets owned by a PID.
+
+    Returns (host, port) tuples suitable for a quick localhost DAP probe.
+    """
+    try:
+        completed = subprocess.run(
+            ["lsof", "-nP", "-a", "-p", str(pid), "-iTCP", "-sTCP:LISTEN"],
+            check=False,
+            capture_output=True,
+            text=True,
+            timeout=1.5,
+        )
+    except (OSError, subprocess.TimeoutExpired):
+        return []
+    if completed.returncode != 0:
+        return []
+
+    endpoints: list[tuple[str, int]] = []
+    seen: set[tuple[str, int]] = set()
+    for line in (completed.stdout or "").splitlines():
+        match = _LSOF_LISTEN_RE.search(line)
+        if not match:
+            continue
+        addr = match.group("addr")
+        port_s = match.group("port")
+        try:
+            port = int(port_s)
+        except ValueError:
+            continue
+        host: str
+        if addr in {"*", "0.0.0.0"}:
+            host = "127.0.0.1"
+        elif addr.startswith("[") and addr.endswith("]"):
+            host = addr[1:-1]
+        else:
+            host = addr
+        ep = (host, port)
+        if ep in seen:
+            continue
+        seen.add(ep)
+        endpoints.append(ep)
+    return endpoints
+
+
+def _list_established_remote_ports(pid: int) -> list[int]:
+    """Best-effort `lsof` probe for remote ports on ESTABLISHED TCP sockets owned by PID."""
+    try:
+        completed = subprocess.run(
+            ["lsof", "-nP", "-a", "-p", str(pid), "-iTCP"],
+            check=False,
+            capture_output=True,
+            text=True,
+            timeout=1.5,
+        )
+    except (OSError, subprocess.TimeoutExpired):
+        return []
+    if completed.returncode != 0:
+        return []
+
+    ports: list[int] = []
+    seen: set[int] = set()
+    for line in (completed.stdout or "").splitlines():
+        match = _LSOF_ESTABLISHED_RE.search(line)
+        if not match:
+            continue
+        if not _is_loopback(match.group("raddr")):
+            continue
+        try:
+            rport = int(match.group("rport"))
+        except ValueError:
+            continue
+        if rport in seen:
+            continue
+        seen.add(rport)
+        ports.append(rport)
+    return ports
+
+
+def _listener_pids_for_port(port: int) -> list[int]:
+    try:
+        completed = subprocess.run(
+            ["lsof", "-nP", f"-iTCP:{port}", "-sTCP:LISTEN", "-t"],
+            check=False,
+            capture_output=True,
+            text=True,
+            timeout=1.2,
+        )
+    except (OSError, subprocess.TimeoutExpired):
+        return []
+    if completed.returncode != 0:
+        return []
+    out: list[int] = []
+    for line in (completed.stdout or "").splitlines():
+        try:
+            out.append(int(line.strip()))
+        except ValueError:
+            continue
+    return out
+
+
+def _ps_args(pid: int) -> str | None:
+    try:
+        completed = subprocess.run(
+            ["ps", "-ww", "-p", str(pid), "-o", "args="],
+            check=False,
+            capture_output=True,
+            text=True,
+            timeout=1.0,
+        )
+    except (OSError, subprocess.TimeoutExpired):
+        return None
+    if completed.returncode != 0:
+        return None
+    return (completed.stdout or "").strip()
+
+
+async def _probe_dap_endpoint(host: str, port: int, *, timeout_s: float = 0.25) -> bool:
+    """Return True if (host, port) speaks the DAP framing protocol."""
+    try:
+        reader, writer = await asyncio.wait_for(
+            asyncio.open_connection(host, port), timeout=timeout_s
+        )
+    except Exception:
+        return False
+
+    try:
+        payload = json.dumps(
+            {
+                "seq": 1,
+                "type": "request",
+                "command": "initialize",
+                "arguments": {
+                    "clientID": "yathaavat-probe",
+                    "adapterID": "python",
+                    "pathFormat": "path",
+                    "linesStartAt1": True,
+                    "columnsStartAt1": True,
+                },
+            }
+        )
+        raw = payload.encode("utf-8")
+        header = f"Content-Length: {len(raw)}\r\n\r\n".encode("ascii")
+        writer.write(header + raw)
+        await writer.drain()
+        data = await asyncio.wait_for(reader.readuntil(b"\r\n\r\n"), timeout=timeout_s)
+        return data.startswith(b"Content-Length:")
+    except Exception:
+        return False
+    finally:
+        try:
+            writer.close()
+            await writer.wait_closed()
+        except Exception:
+            pass
+
+
+async def _infer_debugpy_dap_endpoint(pid: int) -> tuple[str, int] | None:
+    """Best-effort discovery of an already-listening debugpy DAP endpoint for PID."""
+    # `debugpy.listen()` starts a detached adapter process on macOS. The debuggee won't own the
+    # DAP LISTEN socket. Instead, it holds an established connection to an adapter-owned internal
+    # port. Use that connection to find the adapter PID, then extract the DAP port from its args.
+    remote_ports = await asyncio.to_thread(_list_established_remote_ports, pid)
+    for rport in remote_ports[:15]:
+        for adapter_pid in _listener_pids_for_port(rport):
+            args = _ps_args(adapter_pid)
+            if not isinstance(args, str) or not args:
+                continue
+            endpoint = _debugpy_adapter_endpoint(args)
+            if endpoint is not None:
+                return endpoint
+
+    endpoints = await asyncio.to_thread(_list_listening_tcp_endpoints, pid)
+    # Common case: services listen on localhost; probe in-order and stop early.
+    for host, port in endpoints[:25]:
+        if await _probe_dap_endpoint(host, port):
+            return host, port
+        # If we got an IPv6 listen socket, also try loopback v4 (and vice versa) for * binds.
+        if host == "127.0.0.1" and await _probe_dap_endpoint("::1", port):
+            return "::1", port
+        if host == "::1" and await _probe_dap_endpoint("127.0.0.1", port):
+            return "127.0.0.1", port
+    return None

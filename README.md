@@ -59,6 +59,22 @@ Optional load generator:
 uv run --python python3.14 examples/demo_service_client.py --break-after 5
 ```
 
+### Vanilla HTTP service (no debugpy in code)
+
+This service has **zero debugpy imports**; it’s a plain stdlib HTTP server with CPU + job endpoints.
+
+1) Terminal A: `make vanilla-service`
+2) Terminal B:
+   - macOS: `sudo make run` → `Ctrl+A` → select `examples/vanilla_service.py` → Enter
+   - Linux: `make run` → `Ctrl+A` (may still require ptrace perms depending on distro policy)
+3) Hit endpoints to exercise breakpoints / stepping:
+
+```bash
+curl -fsS http://127.0.0.1:8001/health
+curl -fsS 'http://127.0.0.1:8001/compute/primes?limit=200000'
+curl -fsS 'http://127.0.0.1:8001/jobs/enqueue?kind=primes&limit=250000'
+```
+
 ## Notes (macOS)
 
 - Attaching to an existing PID can require elevated privileges / entitlements; when blocked, yathaavat times out and shows actionable transcript output.

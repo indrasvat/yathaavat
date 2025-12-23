@@ -40,6 +40,10 @@ demo-service: ## Run the demo HTTP service (debugpy + CPU endpoints)
 demo-service-nodebug: ## Run demo HTTP service without debugpy (for safe attach)
 	@YATHAAVAT_ENABLE_DEBUGPY=0 uv run --python $(PYTHON) python -Xfrozen_modules=off examples/demo_service.py
 
+.PHONY: vanilla-service
+vanilla-service: ## Run vanilla HTTP service (no debugpy in code)
+	@uv run --python $(PYTHON) python -Xfrozen_modules=off examples/vanilla_service.py --host $${YATHAAVAT_HTTP_HOST:-127.0.0.1} --port $${YATHAAVAT_HTTP_PORT:-8001}
+
 .PHONY: demo-client
 demo-client: ## Drive the demo HTTP service with requests
 	@uv run --python $(PYTHON) examples/demo_service_client.py

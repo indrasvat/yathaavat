@@ -2,16 +2,17 @@ from __future__ import annotations
 
 import asyncio
 import json
+import os
+import shutil
 import socket
 import subprocess
 import sys
+import tempfile
 from dataclasses import dataclass, field
 from pathlib import Path
 from secrets import token_hex
 from time import monotonic
 from typing import override
-
-from platformdirs import user_cache_path
 
 from yathaavat.app.connect import ConnectDialog
 from yathaavat.app.launch import LaunchDialog
@@ -222,33 +223,30 @@ class DebugpySessionManager(SessionManager):
         host = "127.0.0.1"
         port = _pick_free_port()
         token = token_hex(8)
-        remote_dir = _remote_exec_dir()
-        script_path = remote_dir / f"attach_{pid}_{token}.py"
-        status_path = remote_dir / f"attach_{pid}_{token}.json"
-
-        script_path.write_text(
-            _remote_exec_script(status_path=status_path, host=host, port=port),
-            encoding="utf-8",
+        remote_dir, script_path, status_path = _prepare_remote_exec_handoff(
+            pid=pid, token=token, host=host, port=port
         )
 
         self.store.append_transcript(f"Safe attach via sys.remote_exec to PID {pid}…")
         self.store.append_transcript(f"Starting debugpy server on {host}:{port}…")
+        self.store.append_transcript(f"Remote exec handoff: {script_path}")
 
         try:
-            await asyncio.to_thread(sys.remote_exec, pid, str(script_path))
-        except Exception as exc:
-            self.store.append_transcript(f"sys.remote_exec failed: {exc}")
-            raise
-
-        try:
-            await self._await_remote_exec_status(status_path, timeout_s=20.0)
-            self.store.append_transcript("Remote exec started debugpy.")
-            await self._connect_with_timeout(host, port, timeout_s=25.0)
-            await self.pause()
+            try:
+                await asyncio.to_thread(sys.remote_exec, pid, str(script_path))
+            except Exception as exc:
+                self.store.append_transcript(f"sys.remote_exec failed: {exc}")
+                raise
+            try:
+                await self._await_remote_exec_status(status_path, timeout_s=20.0)
+                self.store.append_transcript("Remote exec started debugpy.")
+                await self._connect_with_timeout(host, port, timeout_s=25.0)
+                await self.pause()
+            except Exception as exc:
+                self.store.append_transcript(f"Safe attach failed: {exc}")
+                raise
         finally:
-            # Ensure the remote process has executed the script before removing it.
-            if status_path.exists():
-                script_path.unlink(missing_ok=True)
+            shutil.rmtree(remote_dir, ignore_errors=True)
 
     async def launch(self, target_argv: list[str]) -> None:
         if not target_argv:
@@ -315,9 +313,6 @@ class DebugpySessionManager(SessionManager):
             frames=(),
             locals=(),
             selected_frame_id=None,
-            source_path=None,
-            source_line=None,
-            source_col=None,
         )
 
     async def pause(self) -> None:
@@ -524,9 +519,6 @@ class DebugpySessionManager(SessionManager):
             selected_thread_id=None,
             frames=(),
             selected_frame_id=None,
-            source_path=None,
-            source_line=None,
-            source_col=None,
             stop_reason=None,
             stop_description=None,
             locals=(),
@@ -553,9 +545,6 @@ class DebugpySessionManager(SessionManager):
                     frames=(),
                     locals=(),
                     selected_frame_id=None,
-                    source_path=None,
-                    source_line=None,
-                    source_col=None,
                     stop_reason=None,
                     stop_description=None,
                 )
@@ -948,7 +937,7 @@ class DebugpyPlugin(Plugin):
                     id="session.disconnect",
                     title="Disconnect",
                     summary="Disconnect from the current debug session.",
-                    default_keys=("ctrl+\\",),
+                    default_keys=("ctrl+\\", "ctrl+d"),
                 ),
                 handler=manager.disconnect,
             )
@@ -959,7 +948,7 @@ class DebugpyPlugin(Plugin):
                     id="session.terminate",
                     title="Terminate Debuggee",
                     summary="Terminate the debuggee process (if supported).",
-                    default_keys=("ctrl+shift+\\",),
+                    default_keys=("ctrl+x", "ctrl+shift+\\"),
                 ),
                 handler=manager.terminate,
             )
@@ -970,10 +959,77 @@ def plugin() -> Plugin:
     return DebugpyPlugin()
 
 
-def _remote_exec_dir() -> Path:
-    d = user_cache_path("yathaavat") / "remote_exec"
-    d.mkdir(parents=True, exist_ok=True)
-    return d
+def _pid_ids(pid: int) -> tuple[int, int] | None:
+    try:
+        completed = subprocess.run(
+            ["ps", "-o", "uid=,gid=", "-p", str(pid)],
+            check=False,
+            capture_output=True,
+            text=True,
+            timeout=1.0,
+        )
+    except subprocess.TimeoutExpired:
+        return None
+    if completed.returncode != 0:
+        return None
+    parts = (completed.stdout or "").strip().split()
+    if len(parts) < 2:
+        return None
+    try:
+        uid = int(parts[0])
+        gid = int(parts[1])
+    except ValueError:
+        return None
+    return uid, gid
+
+
+def _prepare_remote_exec_handoff(
+    *, pid: int, token: str, host: str, port: int
+) -> tuple[Path, Path, Path]:
+    """Prepare files for `sys.remote_exec`.
+
+    On macOS, `sys.remote_exec` requires root (or entitlements). When running as root
+    and attaching to a non-root target, the handoff directory must be readable/writable
+    by the target process, otherwise the attach hangs waiting for the status file.
+    """
+
+    remote_dir = Path(tempfile.mkdtemp(prefix=f"yathaavat_remote_exec_{pid}_{token}_"))
+    script_path = remote_dir / "attach.py"
+    status_path = remote_dir / "status.json"
+
+    ids = _pid_ids(pid)
+    target_uid = ids[0] if ids else None
+    target_gid = ids[1] if ids else None
+
+    geteuid = getattr(os, "geteuid", None)
+    is_root = callable(geteuid) and geteuid() == 0
+
+    try:
+        if is_root and isinstance(target_uid, int) and isinstance(target_gid, int):
+            # Make the directory writable to the target so it can create/write the status file.
+            os.chown(remote_dir, target_uid, target_gid)
+            os.chmod(remote_dir, 0o700)
+        elif is_root:
+            # Best-effort fallback: keep the dir root-owned but traversable and pre-create the
+            # status file as world-writable. The path is non-guessable, and the directory is not
+            # listable, which limits accidental access.
+            os.chmod(remote_dir, 0o711)
+            status_path.write_text("", encoding="utf-8")
+            os.chmod(status_path, 0o666)
+        else:
+            os.chmod(remote_dir, 0o700)
+    except Exception:
+        shutil.rmtree(remote_dir, ignore_errors=True)
+        raise
+
+    script_path.write_text(
+        _remote_exec_script(status_path=status_path, host=host, port=port),
+        encoding="utf-8",
+    )
+    if is_root:
+        os.chmod(script_path, 0o644)
+
+    return remote_dir, script_path, status_path
 
 
 def _remote_exec_script(*, status_path: Path, host: str, port: int) -> str:
