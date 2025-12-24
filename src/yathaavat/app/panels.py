@@ -820,6 +820,11 @@ class BreakpointsTable(DataTable[str]):
 
     @on(DataTable.RowHighlighted)
     def _on_row_highlighted(self, event: DataTable.RowHighlighted) -> None:
+        # Avoid surprising "stale Source" jumps when the Breakpoints table rerenders due to
+        # session changes (connect/disconnect). Only sync the Source cursor when the user is
+        # actively focused in this table.
+        if not self.has_focus:
+            return
         if event.cursor_row < 0 or event.cursor_row >= len(self._rows):
             return
         bp = self._rows[event.cursor_row]
