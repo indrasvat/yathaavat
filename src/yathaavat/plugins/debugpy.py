@@ -578,6 +578,7 @@ class DebugpySessionManager(SessionManager):
             self.store.append_transcript(f"Breakpoint {action}: {file}:{line}")
             return
 
+        self._set_breakpoints_pending(path, sorted(configs))
         await self._set_breakpoints(path, sorted(configs))
 
     async def run_to_cursor(self, path: str, line: int) -> None:
@@ -592,6 +593,7 @@ class DebugpySessionManager(SessionManager):
         already = line in configs
         if not already:
             configs[line] = _BreakpointConfig()
+            self._set_breakpoints_pending(path, sorted(configs))
             await self._set_breakpoints(path, sorted(configs))
 
         self._run_to_cursor_target = (path, line)
@@ -639,6 +641,7 @@ class DebugpySessionManager(SessionManager):
             return
 
         # Apply to adapter.
+        self._set_breakpoints_pending(path, sorted(configs))
         await self._set_breakpoints(path, sorted(configs))
 
     def _set_breakpoints_offline(self, path: str, lines: list[int]) -> None:
@@ -654,6 +657,25 @@ class DebugpySessionManager(SessionManager):
                 log_message=(cfgs.get(line) or _BreakpointConfig()).log_message,
                 verified=None,
                 message="queued",
+            )
+            for line in lines
+        )
+        existing = tuple(bp for bp in self.store.snapshot().breakpoints if bp.path != path)
+        self.store.update(
+            breakpoints=tuple(sorted((*existing, *updated), key=lambda b: (b.path, b.line)))
+        )
+
+    def _set_breakpoints_pending(self, path: str, lines: list[int]) -> None:
+        cfgs = self._breakpoints.get(path) or {}
+        updated = tuple(
+            BreakpointInfo(
+                path=path,
+                line=line,
+                condition=(cfgs.get(line) or _BreakpointConfig()).condition,
+                hit_condition=(cfgs.get(line) or _BreakpointConfig()).hit_condition,
+                log_message=(cfgs.get(line) or _BreakpointConfig()).log_message,
+                verified=None,
+                message="pending",
             )
             for line in lines
         )

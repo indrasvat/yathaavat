@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import asyncio
 import sys
 from collections.abc import Callable
 from pathlib import Path
@@ -318,6 +319,8 @@ class YathaavatApp(App[None]):
         self._focus_mode: str | None = None
         self._last_snapshot: SessionSnapshot | None = None
         self._root_container: Container | None = None
+        self._status_flash: str | None = None
+        self._status_flash_task: asyncio.Task[None] | None = None
 
     def compose(self) -> ComposeResult:
         yield self._status
@@ -375,6 +378,9 @@ class YathaavatApp(App[None]):
         if self._status_unsubscribe is not None:
             self._status_unsubscribe()
         self._status_unsubscribe = None
+        if self._status_flash_task is not None:
+            self._status_flash_task.cancel()
+            self._status_flash_task = None
 
     def _bind_status(self) -> None:
         store: SessionStore | None
@@ -408,6 +414,9 @@ class YathaavatApp(App[None]):
             py = snapshot.python or _runtime_python()
             backend = snapshot.backend
 
+        if self._status_flash:
+            message = f"{message}  •  {self._status_flash}" if message else self._status_flash
+
         zoom_pill: str | None = None
         zoom = self._zoom_mode
         if zoom is not None:
@@ -431,7 +440,15 @@ class YathaavatApp(App[None]):
         self.push_screen(CommandPalette(ctx=self._ctx))
 
     async def action_command(self, command_id: str) -> None:
-        await self._ctx.commands.get(command_id).run()
+        cmd = self._ctx.commands.get(command_id)
+        self._flash_status(_flash_label_for_command(cmd.spec.id, cmd.spec.title))
+        try:
+            await cmd.run()
+        except Exception as exc:
+            # Many commands already handle and notify, but always surface errors
+            # so the user clearly sees that the action failed.
+            self._flash_status(f"✗ {cmd.spec.title}", timeout=2.0)
+            self.notify(str(exc), timeout=2.5)
 
     def action_open_source_find(self) -> None:
         try:
@@ -486,6 +503,49 @@ class YathaavatApp(App[None]):
             self.query_one("#source_view").focus()
         except Exception:
             return
+
+    def _flash_status(self, message: str, *, timeout: float = 1.0) -> None:
+        """Show a short-lived status message in the top bar.
+
+        This complements transcript logging: it provides immediate feedback that a keypress
+        was received and an action started.
+        """
+
+        self._status_flash = message
+        self._set_status(self._last_snapshot)
+
+        if self._status_flash_task is not None:
+            self._status_flash_task.cancel()
+
+        async def _clear() -> None:
+            try:
+                await asyncio.sleep(timeout)
+            except asyncio.CancelledError:
+                return
+            self._status_flash = None
+            self._set_status(self._last_snapshot)
+
+        self._status_flash_task = asyncio.create_task(_clear())
+
+
+def _flash_label_for_command(command_id: str, title: str) -> str:
+    # Keep this short; it lives in a 1-line status bar.
+    match command_id:
+        case (
+            "debug.continue"
+            | "debug.pause"
+            | "debug.step_over"
+            | "debug.step_in"
+            | "debug.step_out"
+            | "debug.run_to_cursor"
+            | "breakpoint.toggle"
+            | "breakpoint.add"
+            | "session.disconnect"
+            | "session.terminate"
+        ):
+            return f"{title}…"
+        case _:
+            return title
 
 
 def _help_text(ctx: AppContext) -> str:

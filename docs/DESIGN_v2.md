@@ -97,6 +97,12 @@ UI rules:
 - “Running vs Paused” drives which panels are live-updating and which are frozen snapshots.
 - **Attach-first UX**: `Ctrl+A` prefers “connect if already listening” (detect DAP ports on the selected PID), otherwise falls back to safe attach (`sys.remote_exec`) or classic `debugpy --pid` injection depending on platform/policy.
 
+**Single active session (today)**
+- yathaavat maintains **one active debug session** at a time.
+- Any new **attach / connect / launch** **disconnects** the previous session and **resets UI state** (source, frames, locals, pid) to avoid “stale target” confusion.
+- Breakpoints persist as workspace intent and are re-applied on the next connect; their verification resets on disconnect.
+- To debug two targets concurrently, run **two yathaavat instances** (multi-session UI can be layered later).
+
 ### 4.2 Focus and selection model
 
 Definitions:
@@ -171,7 +177,7 @@ No pill chips, no excessive padding, no decorative UI.
 **Top status line** (single line):
 - workspace, session name, state (RUNNING/PAUSED), pid, python version, backend, active thread/frame summary.
 - when paused, message shows the **execution location** (`file.py:line`) and optionally `src …` if the Source cursor is elsewhere.
-- transient status text: “Attaching… waiting for safe point (press `!` to nudge)” or “Breakpoint pending (module not loaded)”.
+- transient status text: every command provides an immediate “I heard you” signal (e.g. `Continue…`, `Toggle Breakpoint…`), and long operations surface their progress in the Transcript.
 
 **Bottom help line** (single line):
 - state-specific key hints (paused vs running) + focused-pane hints.
