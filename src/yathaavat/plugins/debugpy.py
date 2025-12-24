@@ -32,6 +32,7 @@ from yathaavat.core import (
     ThreadInfo,
     UiHost,
     VariableInfo,
+    WatchInfo,
 )
 from yathaavat.core.dap import DapClient, DapRequestError
 from yathaavat.core.services import ServiceRegistrationError
@@ -683,15 +684,40 @@ class DebugpySessionManager(SessionManager):
         self._auto_resume_pending = False
         self._run_to_cursor_target = None
         self._run_to_cursor_added = False
+        snap = self.store.snapshot()
+        reset_watches = tuple(WatchInfo(expression=w.expression) for w in snap.watches)
+        queued_breakpoints = tuple(
+            sorted(
+                (
+                    BreakpointInfo(
+                        path=bp.path,
+                        line=bp.line,
+                        condition=bp.condition,
+                        hit_condition=bp.hit_condition,
+                        log_message=bp.log_message,
+                        verified=None,
+                        message="queued",
+                    )
+                    for bp in snap.breakpoints
+                ),
+                key=lambda b: (b.path, b.line),
+            )
+        )
         self.store.update(
             state=SessionState.DISCONNECTED,
+            pid=None,
             threads=(),
             selected_thread_id=None,
             frames=(),
             selected_frame_id=None,
+            source_path=None,
+            source_line=None,
+            source_col=None,
             stop_reason=None,
             stop_description=None,
             locals=(),
+            watches=reset_watches,
+            breakpoints=queued_breakpoints,
         )
 
     async def _on_disconnect(self, exc: BaseException) -> None:
