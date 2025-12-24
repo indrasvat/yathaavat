@@ -3,6 +3,7 @@ from __future__ import annotations
 import asyncio
 import json
 import os
+import re
 import shutil
 import socket
 import subprocess
@@ -95,6 +96,7 @@ def _parse_completion_targets(
     response: dict[str, object], *, text: str, cursor: int
 ) -> tuple[CompletionItem, ...]:
     fallback_start, fallback_len = _infer_completion_span(text, cursor)
+    prefix = text[fallback_start : fallback_start + fallback_len]
     out: list[CompletionItem] = []
     for raw in _as_list(_body(response).get("targets")):
         if not isinstance(raw, dict):
@@ -123,8 +125,32 @@ def _parse_completion_targets(
             )
         )
 
-    out.sort(key=lambda item: item.label)
+    out = _rank_completion_items(out, prefix=prefix)
     return tuple(out)
+
+
+def _rank_completion_items(items: list[CompletionItem], *, prefix: str) -> list[CompletionItem]:
+    if not prefix.startswith("_"):
+        items = [it for it in items if not (it.label.startswith("__") and it.label.endswith("__"))]
+
+    def sort_key(item: CompletionItem) -> tuple[int, str]:
+        label = item.label
+        is_dunder = label.startswith("__") and label.endswith("__")
+        is_private = label.startswith("_") and not is_dunder
+        group = 2 if is_dunder else 1 if is_private else 0
+        return group, label.casefold()
+
+    items.sort(key=sort_key)
+    return items
+
+
+_ATTR_COMPLETION_RE = re.compile(
+    r"(?P<chain>[A-Za-z_][A-Za-z0-9_]*(?:\.[A-Za-z_][A-Za-z0-9_]*)*)\.(?P<prefix>[A-Za-z0-9_]*)$"
+)
+
+
+def _is_identifier(value: str) -> bool:
+    return bool(re.fullmatch(r"[A-Za-z_][A-Za-z0-9_]*", value))
 
 
 @dataclass(frozen=True, slots=True)
@@ -183,6 +209,7 @@ class DebugpySessionManager(SessionManager):
                     "pathFormat": "path",
                     "linesStartAt1": True,
                     "columnsStartAt1": True,
+                    "supportsCompletionsRequest": True,
                     "supportsVariableType": True,
                     "supportsVariablePaging": True,
                 },
@@ -442,10 +469,84 @@ class DebugpySessionManager(SessionManager):
             args["frameId"] = frame_id
 
         try:
-            resp = await dap.request("completions", args, timeout_s=3.0)
+            resp = await dap.request("completions", args, timeout_s=1.5)
+        except Exception:
+            resp = {}
+
+        parsed = _parse_completion_targets(resp, text=text, cursor=cursor) if resp else ()
+        if parsed:
+            return parsed
+
+        # Fallback: if debugpy's completion engine yields no useful candidates, attempt a DAP
+        # variables-based completion for simple attribute chains (e.g. `order.`).
+        if snap.state != SessionState.PAUSED:
+            return ()
+        via_vars = await self._complete_via_variables(text, cursor)
+        return via_vars or ()
+
+    async def _complete_via_variables(self, text: str, cursor: int) -> tuple[CompletionItem, ...]:
+        before = text[: max(0, min(cursor, len(text)))]
+        match = _ATTR_COMPLETION_RE.search(before)
+        if match is None:
+            return ()
+
+        chain = match.group("chain")
+        prefix = match.group("prefix")
+        if not chain:
+            return ()
+        parts = chain.split(".")
+        if not parts:
+            return ()
+
+        snap = self.store.snapshot()
+        locals_map = {v.name: v for v in snap.locals if v.name}
+        root = locals_map.get(parts[0])
+        if root is None or root.variables_reference <= 0:
+            return ()
+
+        ref = root.variables_reference
+        # Resolve nested attribute chains via variable references (best-effort, depth capped).
+        for attr in parts[1:4]:
+            children = await self._variables_quick(ref)
+            child = next((c for c in children if c.name == attr), None)
+            if child is None or child.variables_reference <= 0:
+                return ()
+            ref = child.variables_reference
+
+        children = await self._variables_quick(ref)
+        replace_start = max(0, cursor - len(prefix))
+        replace_len = len(prefix)
+        items: list[CompletionItem] = []
+        for child in children:
+            name = child.name
+            if not _is_identifier(name):
+                continue
+            if prefix and not name.startswith(prefix):
+                continue
+            items.append(
+                CompletionItem(
+                    label=name,
+                    insert_text=name,
+                    replace_start=replace_start,
+                    replace_length=replace_len,
+                    type=child.type,
+                )
+            )
+        return tuple(_rank_completion_items(items, prefix=prefix))
+
+    async def _variables_quick(self, variables_reference: int) -> tuple[VariableInfo, ...]:
+        if variables_reference <= 0:
+            return ()
+        dap = self._require_dap()
+        try:
+            resp = await dap.request(
+                "variables",
+                {"variablesReference": variables_reference},
+                timeout_s=1.5,
+            )
         except Exception:
             return ()
-        return _parse_completion_targets(resp, text=text, cursor=cursor)
+        return tuple(_parse_variables(_as_list(_body(resp).get("variables"))))
 
     async def get_variables(self, variables_reference: int) -> tuple[VariableInfo, ...]:
         if variables_reference <= 0:

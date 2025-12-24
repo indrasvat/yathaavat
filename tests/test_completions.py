@@ -56,6 +56,20 @@ def test_parse_completion_targets_sorts_by_label() -> None:
     assert [it.label for it in items] == ["a", "b"]
 
 
+def test_parse_completion_targets_filters_dunders_by_default() -> None:
+    resp: dict[str, object] = {
+        "body": {"targets": [{"label": "__class__"}, {"label": "alpha"}, {"label": "__dict__"}]}
+    }
+    items = _parse_completion_targets(resp, text="obj.", cursor=len("obj."))
+    assert [it.label for it in items] == ["alpha"]
+
+
+def test_parse_completion_targets_keeps_dunders_when_prefix_starts_underscore() -> None:
+    resp: dict[str, object] = {"body": {"targets": [{"label": "__class__"}, {"label": "__dict__"}]}}
+    items = _parse_completion_targets(resp, text="obj.__", cursor=len("obj.__"))
+    assert [it.label for it in items] == ["__class__", "__dict__"]
+
+
 def test_apply_completion_replaces_span_and_moves_cursor() -> None:
     item = CompletionItem(
         label="subtotal",
