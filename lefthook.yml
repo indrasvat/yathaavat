@@ -24,6 +24,7 @@ pre-commit:
 pre-push:
   commands:
     protect-main:
+      use_stdin: true
       run: |
         branch=$(git rev-parse --abbrev-ref HEAD)
         if [ "$branch" = "main" ]; then
@@ -31,6 +32,13 @@ pre-push:
           printf "  Create a branch, push it, and open a PR.\n"
           exit 1
         fi
+        while read -r local_ref _local_sha remote_ref _remote_sha; do
+          if [ "$remote_ref" = "refs/heads/main" ]; then
+            printf "\033[31mERROR\033[0m Pushing to refs/heads/main is not allowed (refspec: %s).\n" "$local_ref"
+            printf "  Push to a feature branch and open a PR.\n"
+            exit 1
+          fi
+        done
       fail_text: "Direct pushes to main are blocked. Use a PR."
     ci:
       run: make ci
