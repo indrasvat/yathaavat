@@ -25,8 +25,9 @@ help: ## Show this help (default)
 		}' $(MAKEFILE_LIST)
 
 .PHONY: sync
-sync: ## Create/update .venv and install deps (uv sync)
+sync: ## Create/update .venv, install deps, install hooks
 	@uv sync --python $(PYTHON) --all-extras
+	@$(MAKE) hooks
 
 .PHONY: run
 run: ## Launch the TUI
@@ -88,10 +89,23 @@ typecheck: ## Type-check (mypy)
 check: format-check lint typecheck test ## Run all checks (fast fail)
 	@printf "$(COLOR_GREEN)OK$(COLOR_RESET) All checks passed.\n"
 
+.PHONY: ci
+ci: check shellcheck ## Full CI pipeline (check + shellcheck)
+	@printf "$(COLOR_GREEN)OK$(COLOR_RESET) CI passed.\n"
+
+.PHONY: shellcheck
+shellcheck: ## Shellcheck install.sh
+	@shellcheck install.sh
+	@printf "$(COLOR_GREEN)OK$(COLOR_RESET) shellcheck passed.\n"
+
 .PHONY: hooks
-hooks: ## Install git hooks (pre-push runs make check)
-	@uv run --python $(PYTHON) pre-commit install --hook-type pre-push
-	@printf "$(COLOR_GREEN)OK$(COLOR_RESET) Installed pre-push hook.\n"
+hooks: ## Install git hooks via lefthook (pre-commit + pre-push)
+	@if ! command -v lefthook >/dev/null 2>&1; then \
+		printf "$(COLOR_YELLOW)lefthook not found — installing via brew…$(COLOR_RESET)\n"; \
+		brew install lefthook; \
+	fi
+	@lefthook install
+	@printf "$(COLOR_GREEN)OK$(COLOR_RESET) Installed lefthook hooks (pre-commit + pre-push).\n"
 
 .PHONY: version
 version: ## Show current version (from git tags)
