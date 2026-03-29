@@ -21,3 +21,10 @@ def test_parse_host_port_rejects_invalid() -> None:
     assert parse_host_port("nope") is None
     assert parse_host_port("host:-1") is None
     assert parse_host_port("host:99999") is None
+
+
+def test_parse_host_port_rejects_port_only_out_of_range() -> None:
+    assert parse_host_port("-1") is None
+    assert parse_host_port("0") is None
+    assert parse_host_port("70000") is None
+    assert parse_host_port("65536") is None

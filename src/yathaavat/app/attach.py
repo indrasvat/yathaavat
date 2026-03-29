@@ -470,7 +470,7 @@ async def _probe_dap_endpoint(host: str, port: int, *, timeout_s: float = 0.25) 
         reader, writer = await asyncio.wait_for(
             asyncio.open_connection(host, port), timeout=timeout_s
         )
-    except Exception:
+    except (OSError, TimeoutError):
         return False
 
     try:
@@ -494,13 +494,13 @@ async def _probe_dap_endpoint(host: str, port: int, *, timeout_s: float = 0.25) 
         await writer.drain()
         data = await asyncio.wait_for(reader.readuntil(b"\r\n\r\n"), timeout=timeout_s)
         return data.startswith(b"Content-Length:")
-    except Exception:
+    except (OSError, TimeoutError, asyncio.IncompleteReadError):
         return False
     finally:
         try:
             writer.close()
             await writer.wait_closed()
-        except Exception:
+        except OSError:
             pass
 
 

@@ -25,9 +25,12 @@ def parse_host_port(value: str) -> HostPort | None:
         return None
     if ":" not in s:
         try:
-            return HostPort(host="127.0.0.1", port=int(s))
+            port = int(s)
         except ValueError:
             return None
+        if not (0 < port < 65536):
+            return None
+        return HostPort(host="127.0.0.1", port=port)
     host, port_s = s.rsplit(":", 1)
     host = host.strip() or "127.0.0.1"
     try:
