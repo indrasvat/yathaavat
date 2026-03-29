@@ -27,7 +27,7 @@ help: ## Show this help (default)
 .PHONY: sync
 sync: ## Create/update .venv, install deps, install hooks
 	@uv sync --python $(PYTHON) --all-extras
-	@$(MAKE) hooks
+	@$(MAKE) hooks || printf "$(COLOR_YELLOW)WARN$(COLOR_RESET) Hooks not installed (lefthook unavailable). Run \`make hooks\` manually.\n"
 
 .PHONY: run
 run: ## Launch the TUI
@@ -123,7 +123,13 @@ release: check ## Tag + push to trigger GH Actions release (usage: make release 
 		exit 1; \
 	fi
 	@printf "$(COLOR_BOLD)Releasing v$(V)…$(COLOR_RESET)\n"
-	@git diff --quiet || { printf "$(COLOR_RED)ERROR$(COLOR_RESET) Uncommitted changes.\n"; exit 1; }
+	@git diff --quiet || { printf "$(COLOR_RED)ERROR$(COLOR_RESET) Unstaged changes.\n"; exit 1; }
+	@git diff --cached --quiet || { printf "$(COLOR_RED)ERROR$(COLOR_RESET) Staged uncommitted changes.\n"; exit 1; }
+	@test -z "$$(git ls-files --others --exclude-standard)" || { printf "$(COLOR_YELLOW)WARN$(COLOR_RESET) Untracked files present.\n"; }
+	@branch=$$(git rev-parse --abbrev-ref HEAD); \
+		if [ "$$branch" != "main" ]; then \
+			printf "$(COLOR_YELLOW)WARN$(COLOR_RESET) Releasing from branch '$$branch' (not main).\n"; \
+		fi
 	@git tag -a "v$(V)" -m "release: v$(V)"
 	@git push origin "v$(V)"
 	@printf "$(COLOR_GREEN)OK$(COLOR_RESET) Tag v$(V) pushed — GitHub Actions will build and create the release.\n"

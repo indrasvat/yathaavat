@@ -224,7 +224,7 @@ async def main(connection: iterm2.Connection) -> None:
     failed: list[str] = []
 
     try:
-        await session.async_send_text(f"\x15cd {root}\n")
+        await session.async_send_text(f'\x15cd "{root}"\n')
         await asyncio.sleep(0.3)
         await session.async_send_text("\x15clear\n")
         await asyncio.sleep(0.3)

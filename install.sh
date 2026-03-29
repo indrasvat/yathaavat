@@ -220,17 +220,19 @@ do_install() {
     fi
 
     # Check for existing installation
+    local reinstall_flag=""
     if uv tool list 2>/dev/null | grep -q "^yathaavat"; then
         local existing_ver
         existing_ver="$(uv tool list 2>/dev/null | grep "^yathaavat" | head -1)"
-        _info "Replacing existing: ${DIM}${existing_ver}${RST}"
-        uv tool uninstall yathaavat >/dev/null 2>&1 || true
+        _info "Upgrading existing: ${DIM}${existing_ver}${RST}"
+        reinstall_flag="--reinstall"
     fi
 
     _step "Installing from ${DIM}${source}${RST}..."
     printf "\n"
 
-    if uv tool install --python python3.14 "$source" 2>&1 | while IFS= read -r line; do
+    # shellcheck disable=SC2086
+    if uv tool install --python python3.14 $reinstall_flag "$source" 2>&1 | while IFS= read -r line; do
         printf "  %s|%s  %s%s%s\n" "${DIM}${CYN}" "$RST" "$DIM" "$line" "$RST"
     done; then
         printf "\n"
