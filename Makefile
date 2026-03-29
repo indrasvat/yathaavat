@@ -60,6 +60,10 @@ iterm2-safe: ## Drive safe-attach in iTerm2
 iterm2-demo-service: ## Drive demo HTTP service attach in iTerm2
 	@uv run --python $(PYTHON) .claude/automations/iterm2_capture_demo_service.py
 
+.PHONY: iterm2-installer
+iterm2-installer: ## Drive install.sh in iTerm2 + capture screenshots
+	@uv run --python $(PYTHON) .claude/automations/iterm2_capture_installer.py
+
 .PHONY: test
 test: ## Run tests (pytest)
 	@uv run --python $(PYTHON) pytest

@@ -1,8 +1,8 @@
-#!/bin/bash
+#!/usr/bin/env bash
 # ╭──────────────────────────────────────────────────────────────╮
-# │  yathaavat installer                                        │
-# │  Terminal-first visual debugger for Python 3.14+            │
-# │  No sudo · No PyPI · Installs via uv                        │
+# │  yathaavat installer                                         │
+# │  Terminal-first visual debugger for Python 3.14+             │
+# │  No sudo · No PyPI · Installs via uv                         │
 # ╰──────────────────────────────────────────────────────────────╯
 #
 # Usage:
@@ -10,6 +10,7 @@
 #   bash install.sh                     # install latest
 #   bash install.sh --version v0.1.0    # install specific version
 #   bash install.sh --check             # check prerequisites only
+#   bash install.sh --dry-run            # show what would happen
 #   bash install.sh --uninstall         # remove yathaavat
 #
 # Prerequisites: uv, python3.14
@@ -66,6 +67,7 @@ REPO="indrasvat/yathaavat"
 REPO_URL="https://github.com/${REPO}"
 VERSION=""
 CHECK_ONLY="false"
+DRY_RUN="false"
 UNINSTALL="false"
 
 # ── Argument parsing ────────────────────────────────────────────
@@ -78,13 +80,17 @@ while [ $# -gt 0 ]; do
         --check)
             CHECK_ONLY="true"
             ;;
+        --dry-run|-n)
+            DRY_RUN="true"
+            ;;
         --uninstall)
             UNINSTALL="true"
             ;;
         --help|-h)
-            printf "Usage: %s [--version TAG] [--check] [--uninstall]\n" "$0"
+            printf "Usage: %s [--version TAG] [--check] [--dry-run] [--uninstall]\n" "$0"
             printf "\n  --version TAG  Install specific version (default: latest)\n"
             printf "  --check        Check prerequisites only\n"
+            printf "  --dry-run      Show what would happen without installing\n"
             printf "  --uninstall    Remove yathaavat\n"
             exit 0
             ;;
@@ -101,7 +107,11 @@ show_banner() {
     printf "\n"
     _box_rule "+" "+"
     _box_line ""
-    _box_line "${BOLD}yathaavat${RST}  ${DIM}(Sanskrit: as it is, truly)${RST}"
+    if [ "$DRY_RUN" = "true" ]; then
+        _box_line "${BOLD}yathaavat${RST}  ${BYEL}[DRY RUN]${RST}"
+    else
+        _box_line "${BOLD}yathaavat${RST}  ${DIM}(Sanskrit: as it is, truly)${RST}"
+    fi
     _box_line ""
     _box_line "Terminal-first visual debugger for Python 3.14+"
     _box_line "${DIM}Textual UI  ·  DAP/debugpy  ·  keyboard-first${RST}"
@@ -177,6 +187,29 @@ do_uninstall() {
 
     printf "\n"
     _done "Done."
+}
+
+# ── Install (dry-run) ──────────────────────────────────────────
+do_install_dry() {
+    local source="git+${REPO_URL}"
+    if [ -n "$VERSION" ]; then
+        source="${source}@${VERSION}"
+    fi
+
+    _step "${BYEL}[DRY RUN]${RST} Would install from ${DIM}${source}${RST}"
+    printf "\n"
+
+    # Check for existing installation
+    if uv tool list 2>/dev/null | grep -q "^yathaavat"; then
+        local existing_ver
+        existing_ver="$(uv tool list 2>/dev/null | grep "^yathaavat" | head -1)"
+        _info "Would replace: ${DIM}${existing_ver}${RST}"
+    fi
+
+    _info "Command: ${BOLD}uv tool install --python python3.14 ${source}${RST}"
+    _info "Target:  ${DIM}~/.local/bin/yathaavat${RST}"
+    printf "\n"
+    _done "${BYEL}[DRY RUN]${RST} No changes made"
 }
 
 # ── Install ────────────────────────────────────────────────────
@@ -260,6 +293,11 @@ main() {
 
     if [ "$CHECK_ONLY" = "true" ]; then
         _done "All prerequisites met!"
+        exit 0
+    fi
+
+    if [ "$DRY_RUN" = "true" ]; then
+        do_install_dry
         exit 0
     fi
 
