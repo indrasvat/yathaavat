@@ -10,7 +10,7 @@ yathaavat speaks DAP to debugpy and renders a tri-pane TUI (Stack/Source/Locals)
 
 ## Architecture
 
-```
+```text
 src/yathaavat/
   core/           # Domain: session store, DAP client, commands, services, plugins
   app/            # Textual UI: panels, dialogs, layout, chrome, expression editor
@@ -247,7 +247,7 @@ gh pr create --title "<type>(<scope>): <description>" --body "..."
 ```
 
 PR body format:
-```
+```markdown
 ## Summary
 - <1-3 bullet points describing what and why>
 
