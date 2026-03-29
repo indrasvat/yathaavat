@@ -103,7 +103,7 @@ build-dist: ## Build wheel + sdist into dist/
 	@printf "$(COLOR_GREEN)OK$(COLOR_RESET) Built dist/\n"
 
 .PHONY: release
-release: check ## Create a GitHub release (usage: make release V=0.2.0)
+release: check ## Tag + push to trigger GH Actions release (usage: make release V=0.2.0)
 	@if [ -z "$(V)" ]; then \
 		printf "$(COLOR_RED)ERROR$(COLOR_RESET) Usage: make release V=x.y.z\n"; \
 		exit 1; \
@@ -112,11 +112,8 @@ release: check ## Create a GitHub release (usage: make release V=0.2.0)
 	@git diff --quiet || { printf "$(COLOR_RED)ERROR$(COLOR_RESET) Uncommitted changes.\n"; exit 1; }
 	@git tag -a "v$(V)" -m "release: v$(V)"
 	@git push origin "v$(V)"
-	@uv build
-	@gh release create "v$(V)" dist/*.whl dist/*.tar.gz \
-		--title "v$(V)" \
-		--generate-notes
-	@printf "$(COLOR_GREEN)OK$(COLOR_RESET) Released v$(V)\n"
+	@printf "$(COLOR_GREEN)OK$(COLOR_RESET) Tag v$(V) pushed — GitHub Actions will build and create the release.\n"
+	@printf "  Track: $(COLOR_CYAN)gh run watch$(COLOR_RESET)\n"
 	@printf "  Install: $(COLOR_CYAN)uvx --from git+https://github.com/indrasvat/yathaavat@v$(V) yathaavat$(COLOR_RESET)\n"
 
 .PHONY: clean

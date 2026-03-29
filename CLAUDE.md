@@ -50,12 +50,18 @@ make iterm2-demo-service   # Automated demo-service attach screenshots
 make iterm2-safe           # Automated safe-attach screenshots
 ```
 
+## CI/CD
+
+**CI** (`.github/workflows/ci.yml`): Runs on push to main and PRs — format check, ruff lint, mypy strict, pytest, shellcheck on install.sh.
+
+**Release** (`.github/workflows/release.yml`): Triggered by `v*` tag push — runs full checks, builds wheel + sdist via `uv build`, creates GitHub Release with artifacts and auto-generated notes.
+
 ## Versioning and releases
 
 Version is derived from **git tags** via `hatch-vcs` — never hardcode a version string.
 
 ```bash
-# Create a release (runs make check first, then tags + pushes + uploads to GitHub)
+# Create a release (runs local checks, tags, pushes — GH Actions builds + publishes)
 make release V=0.2.0
 
 # Users install via uvx (no PyPI needed)
