@@ -17,13 +17,16 @@ Terminal-first visual debugger for **Python 3.14+** (Textual UI + debugpy/DAP), 
 Prereqs: `uv` + `python3.14`.
 
 ```bash
-# Run directly (no install needed)
+# One-liner
+curl -fsSL https://raw.githubusercontent.com/indrasvat/yathaavat/main/install.sh | bash
+
+# Or run directly without installing
 uvx --from git+https://github.com/indrasvat/yathaavat yathaavat
 
-# Or install persistently
-uv tool install git+https://github.com/indrasvat/yathaavat
+# Or install manually
+uv tool install --python python3.14 git+https://github.com/indrasvat/yathaavat
 
-# Or pin a release
+# Pin a release
 uvx --from git+https://github.com/indrasvat/yathaavat@v0.1.0 yathaavat
 ```
 
