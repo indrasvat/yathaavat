@@ -12,9 +12,22 @@ Terminal-first visual debugger for **Python 3.14+** (Textual UI + debugpy/DAP), 
 - **Debugger essentials**: continue (`c`), pause (`p`), step over (`n`), step in (`s`), step out (`u`).
 - **Inspection**: stack, locals (expand/copy), watches, transcript, command palette (`Ctrl+P`).
 
-## Quickstart
+## Install
 
 Prereqs: `uv` + `python3.14`.
+
+```bash
+# Run directly (no install needed)
+uvx --from git+https://github.com/indrasvat/yathaavat yathaavat
+
+# Or install persistently
+uv tool install git+https://github.com/indrasvat/yathaavat
+
+# Or pin a release
+uvx --from git+https://github.com/indrasvat/yathaavat@v0.1.0 yathaavat
+```
+
+## Quickstart (dev)
 
 ```bash
 make sync

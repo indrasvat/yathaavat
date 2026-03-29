@@ -3,6 +3,7 @@ from __future__ import annotations
 import argparse
 from dataclasses import dataclass
 
+from yathaavat import __version__
 from yathaavat.app.tui import run_tui
 
 
@@ -13,6 +14,9 @@ class Args:
 
 def _parse_args(argv: list[str] | None) -> Args:
     parser = argparse.ArgumentParser(prog="yathaavat", add_help=True)
+    parser.add_argument(
+        "-V", "--version", action="version", version=f"%(prog)s {__version__}"
+    )
     parser.add_argument(
         "command",
         nargs="?",

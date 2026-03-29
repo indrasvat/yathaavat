@@ -1,10 +1,10 @@
 [build-system]
-requires = ["hatchling>=1.26"]
+requires = ["hatchling>=1.26", "hatch-vcs>=0.4"]
 build-backend = "hatchling.build"
 
 [project]
 name = "yathaavat"
-version = "0.1.0"
+dynamic = ["version"]
 description = "A terminal-first visual debugger for Python 3.14+"
 readme = "README.md"
 requires-python = ">=3.14"
@@ -29,6 +29,16 @@ yathaavat = "yathaavat.cli:main"
 builtin = "yathaavat.plugins.builtin:plugin"
 processes = "yathaavat.plugins.processes:plugin"
 debugpy = "yathaavat.plugins.debugpy:plugin"
+
+[tool.hatch.version]
+source = "vcs"
+
+[tool.hatch.version.raw-options]
+version_scheme = "guess-next-dev"
+local_scheme = "no-local-version"
+
+[tool.hatch.build.hooks.vcs]
+version-file = "src/yathaavat/_version.py"
 
 [tool.hatch.build.targets.wheel]
 packages = ["src/yathaavat"]

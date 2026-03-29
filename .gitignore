@@ -24,6 +24,7 @@ htmlcov/
 dist/
 build/
 *.egg-info/
+src/yathaavat/_version.py
 
 # Logs / bundles
 *.log

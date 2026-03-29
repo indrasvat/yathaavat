@@ -89,6 +89,32 @@ hooks: ## Install git hooks (pre-push runs make check)
 	@uv run --python $(PYTHON) pre-commit install --hook-type pre-push
 	@printf "$(COLOR_GREEN)OK$(COLOR_RESET) Installed pre-push hook.\n"
 
+.PHONY: version
+version: ## Show current version (from git tags)
+	@uv run --python $(PYTHON) python -c "from yathaavat import __version__; print(__version__)"
+
+.PHONY: build-dist
+build-dist: ## Build wheel + sdist into dist/
+	@uv build
+	@printf "$(COLOR_GREEN)OK$(COLOR_RESET) Built dist/\n"
+
+.PHONY: release
+release: check ## Create a GitHub release (usage: make release V=0.2.0)
+	@if [ -z "$(V)" ]; then \
+		printf "$(COLOR_RED)ERROR$(COLOR_RESET) Usage: make release V=x.y.z\n"; \
+		exit 1; \
+	fi
+	@printf "$(COLOR_BOLD)Releasing v$(V)…$(COLOR_RESET)\n"
+	@git diff --quiet || { printf "$(COLOR_RED)ERROR$(COLOR_RESET) Uncommitted changes.\n"; exit 1; }
+	@git tag -a "v$(V)" -m "release: v$(V)"
+	@git push origin "v$(V)"
+	@uv build
+	@gh release create "v$(V)" dist/*.whl dist/*.tar.gz \
+		--title "v$(V)" \
+		--generate-notes
+	@printf "$(COLOR_GREEN)OK$(COLOR_RESET) Released v$(V)\n"
+	@printf "  Install: $(COLOR_CYAN)uvx --from git+https://github.com/indrasvat/yathaavat@v$(V) yathaavat$(COLOR_RESET)\n"
+
 .PHONY: clean
 clean: ## Remove caches + .venv
 	@rm -rf .venv .pytest_cache .ruff_cache .mypy_cache dist build *.egg-info || true

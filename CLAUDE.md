@@ -31,11 +31,14 @@ Key patterns:
 ```bash
 make sync          # Install deps (requires uv + python3.14)
 make run           # Launch TUI
-make test          # pytest (70 tests, <1s)
+make test          # pytest (71 tests, <1s)
 make lint          # ruff check
 make format        # ruff format
 make typecheck     # mypy --strict
 make check         # format-check + lint + typecheck + test (pre-push hook)
+make version       # Show current version (from git tags)
+make build-dist    # Build wheel + sdist
+make release V=x.y.z  # Tag, push, build, create GitHub release
 ```
 
 Demo flows:
@@ -46,6 +49,21 @@ make iterm2                # Automated iTerm2 TUI screenshots
 make iterm2-demo-service   # Automated demo-service attach screenshots
 make iterm2-safe           # Automated safe-attach screenshots
 ```
+
+## Versioning and releases
+
+Version is derived from **git tags** via `hatch-vcs` — never hardcode a version string.
+
+```bash
+# Create a release (runs make check first, then tags + pushes + uploads to GitHub)
+make release V=0.2.0
+
+# Users install via uvx (no PyPI needed)
+uvx --from git+https://github.com/indrasvat/yathaavat yathaavat
+uvx --from git+https://github.com/indrasvat/yathaavat@v0.2.0 yathaavat
+```
+
+Between tags, `__version__` shows dev versions like `0.1.dev38` (38 commits since last tag).
 
 ## Code conventions
 
