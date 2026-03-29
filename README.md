@@ -1,110 +1,140 @@
-# yathaavat
+<p align="center">
+  <img src="./docs/logo.svg" width="100%" style="max-width: 1200px;" alt="yathaavat">
+</p>
 
-> *yathāvat* (Sanskrit): “as it is”, “accurately / truly” — a debugger focused on faithful, low-friction visibility.
+<p align="center">
+  <i>yathaavat</i> (Sanskrit): "as it is", "accurately / truly"
+</p>
 
-Terminal-first visual debugger for **Python 3.14+** (Textual UI + debugpy/DAP), designed for fast, keyboard-driven workflows.
+<p align="center">
+  Terminal-first visual debugger for <b>Python 3.14+</b><br>
+  Textual UI · DAP/debugpy · keyboard-first · safe attach
+</p>
 
-## What you get
+<p align="center">
+  <a href="#install">Install</a> ·
+  <a href="#quickstart">Quickstart</a> ·
+  <a href="#features">Features</a> ·
+  <a href="#keyboard-reference">Keys</a> ·
+  <a href="#demo-flows">Demos</a> ·
+  <a href="#development">Development</a>
+</p>
 
-- **Launch / Connect / Attach**: `Ctrl+R` launch a target, `Ctrl+K` connect to `host:port`, `Ctrl+A` attach to a local process.
-- **Breakpoints**: toggle at cursor (`b`), add by `file:line` (`Ctrl+B`), queued while disconnected and applied on connect.
-- **Fast navigation**: inline Find (`Ctrl+F` or `/`), Go to line (`Ctrl+G`), Jump to execution (`Ctrl+E`), Run to cursor (`Enter`).
-- **Debugger essentials**: continue (`c`), pause (`p`), step over (`n`), step in (`s`), step out (`u`).
-- **Inspection**: stack, locals (expand/copy), watches, transcript, command palette (`Ctrl+P`).
+---
 
 ## Install
 
-Prereqs: `uv` + `python3.14`.
+Requires `uv` and Python 3.14.
 
 ```bash
-# One-liner
 curl -fsSL https://raw.githubusercontent.com/indrasvat/yathaavat/main/install.sh | bash
+```
 
-# Or run directly without installing
-uvx --from git+https://github.com/indrasvat/yathaavat yathaavat
+Or install directly:
 
-# Or install manually
+```bash
 uv tool install --python python3.14 git+https://github.com/indrasvat/yathaavat
-
-# Pin a release
-uvx --from git+https://github.com/indrasvat/yathaavat@v0.1.0 yathaavat
 ```
 
-## Quickstart (dev)
+## Quickstart
 
 ```bash
-make sync
-make run
+yathaavat                  # launch the TUI
 ```
 
-Inside the TUI:
-- `Ctrl+R` → `examples/demo_target.py`
-- `Ctrl+P` command palette (discover everything)
-- `Ctrl+Q` quit
+Inside the TUI, press `Ctrl+R` and type `examples/demo_target.py` to launch a demo script under the debugger. Press `Ctrl+P` to open the command palette and discover all available commands.
 
-## Demo flows
+## Features
 
-### Launch (single-file)
+- **Three debug workflows** — Launch a script (`Ctrl+R`), connect to a debugpy server (`Ctrl+K`), or attach to a running process by PID (`Ctrl+A`)
+- **Breakpoints** — toggle at cursor, add by `file:line` with conditions / hit counts / logpoints, queued while disconnected and auto-applied on connect
+- **Source navigation** — inline Find (`Ctrl+F`), Go to line (`Ctrl+G`), Jump to execution (`Ctrl+E`), Run to cursor (`Enter`)
+- **Inspection** — expandable locals tree, watch expressions with change tracking, expression console with DAP tab-completion
+- **Tri-pane layout** — Stack + Breakpoints | Source | Locals + Watches, with Console and Transcript below
+- **Command palette** — `Ctrl+P` for fuzzy search across all commands with keybinding hints
+- **Gutter markers** — `●` verified, `◌` pending, `✗` failed, `▶` execution line
+- **Zoom** — `F2` maximizes any pane, `F2` again restores layout
 
-1) `make run`
-2) `Ctrl+R` → `examples/demo_target.py`
+## Keyboard Reference
 
-### Connect (debugpy server)
+| Key | Action |
+|-----|--------|
+| `Ctrl+R` | Launch a Python script under debugpy |
+| `Ctrl+K` | Connect to a debugpy server (host:port) |
+| `Ctrl+A` | Attach to a running process by PID |
+| `Ctrl+P` | Command palette (fuzzy search) |
+| `c` | Continue |
+| `n` | Step over |
+| `s` | Step in |
+| `u` | Step out |
+| `p` | Pause |
+| `b` | Toggle breakpoint at cursor |
+| `Ctrl+B` | Add breakpoint by file:line |
+| `Ctrl+W` | Add watch expression |
+| `Ctrl+F` | Find in source |
+| `Ctrl+G` | Go to line |
+| `Ctrl+E` | Jump to execution line |
+| `Enter` | Run to cursor (Source, paused) |
+| `F2` | Zoom / unzoom focused pane |
+| `Tab` | Cycle focus between panes |
+| `Esc` | Close dialog / cancel |
+| `Ctrl+Q` | Quit |
+
+## Demo Flows
+
+### Launch a script
 
 ```bash
-YATHAAVAT_DEMO_PORT=5678 uv run --python python3.14 examples/demo_app.py
+yathaavat                  # Ctrl+R → examples/demo_target.py
 ```
 
-Then in the TUI: `Ctrl+K` → `127.0.0.1:5678`.
-
-### Long-lived HTTP service (realistic)
-
-1) Terminal A: `make demo-service`
-2) Terminal B: `make run` → `Ctrl+K` → `127.0.0.1:5678`
-3) Drive endpoints:
+### Connect to a running service
 
 ```bash
-curl -fsS http://127.0.0.1:8000/health
-curl -fsS 'http://127.0.0.1:8000/cpu/primes?limit=200000'
-curl -fsS 'http://127.0.0.1:8000/debug/break'   # pauses only while yathaavat is connected
+# Terminal A — start the demo HTTP service (debugpy listening on :5678)
+make demo-service
+
+# Terminal B — connect yathaavat
+yathaavat                  # Ctrl+K → 127.0.0.1:5678
+
+# Terminal C — trigger a breakpoint via HTTP
+curl http://127.0.0.1:8000/debug/break
 ```
 
-Optional load generator:
+### Attach to a vanilla process (no debugpy in code)
 
 ```bash
-uv run --python python3.14 examples/demo_service_client.py --break-after 5
+# Terminal A — plain stdlib HTTP server, zero debugpy imports
+make vanilla-service
+
+# Terminal B — attach by PID (sudo required on macOS)
+sudo yathaavat             # Ctrl+A → select vanilla_service.py → Enter
 ```
 
-### Vanilla HTTP service (no debugpy in code)
-
-This service has **zero debugpy imports**; it’s a plain stdlib HTTP server with CPU + job endpoints.
-
-1) Terminal A: `make vanilla-service`
-2) Terminal B:
-   - macOS: `sudo make run` → `Ctrl+A` → select `examples/vanilla_service.py` → Enter
-   - Linux: `make run` → `Ctrl+A` (may still require ptrace perms depending on distro policy)
-3) Hit endpoints to exercise breakpoints / stepping:
+### Drive endpoints while debugging
 
 ```bash
-curl -fsS http://127.0.0.1:8001/health
-curl -fsS 'http://127.0.0.1:8001/compute/primes?limit=200000'
-curl -fsS 'http://127.0.0.1:8001/jobs/enqueue?kind=primes&limit=250000'
+curl http://127.0.0.1:8000/health
+curl 'http://127.0.0.1:8000/cpu/primes?limit=200000'
+curl http://127.0.0.1:8000/debug/break
 ```
-
-## Notes (macOS)
-
-- Attaching to an existing PID can require elevated privileges / entitlements; when blocked, yathaavat times out and shows actionable transcript output.
-- For the smoothest experience, prefer `Launch` (`Ctrl+R`) or connecting to an already-listening debugpy server (`Ctrl+K`).
-
-## Docs
-
-- `docs/DESIGN_v2.md` — current design + interaction model
-- `docs/mocks.html` — UI direction (HTML mocks)
-- `docs/research/README.md` — research index (landscape, terminal constraints, UX best practices)
 
 ## Development
 
-- `make help` — list targets
-- `make check` — format/lint/typecheck/tests
-- `make hooks` — install `pre-push` hook (runs `make check`)
-- `make iterm2` / `make iterm2-demo-service` / `make iterm2-safe` — scripted iTerm2 runs + screenshots (always cleaned up)
+```bash
+make sync          # install deps + git hooks (requires uv + python3.14)
+make run           # launch TUI
+make test          # pytest
+make ci            # format + lint + typecheck + test + shellcheck
+make release V=x.y.z  # tag + push → GitHub Actions builds + releases
+make help          # list all targets
+```
+
+## Docs
+
+- [`docs/DESIGN_v2.md`](docs/DESIGN_v2.md) — interaction model, layout system, and roadmap
+- [`docs/research/`](docs/research/) — landscape survey, terminal constraints, UX best practices
+
+## License
+
+MIT
