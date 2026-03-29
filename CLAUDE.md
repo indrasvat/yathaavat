@@ -57,6 +57,13 @@ make iterm2-safe           # Automated safe-attach screenshots
 - **No docstrings on obvious methods** — code should be self-evident; docstrings only where logic isn't obvious
 - **Async all the way**: DAP operations are async; never block the Textual event loop
 - **Textual CSS** for layout, not inline styles
+- **Never manually edit `pyproject.toml` dependency versions or `uv.lock`** — use `uv` commands:
+  - `uv add <pkg>` — add a new dependency
+  - `uv add --dev <pkg>` — add a dev dependency
+  - `uv sync --upgrade-package <pkg>` — upgrade a specific package
+  - `uv sync --upgrade` — upgrade all packages
+  - `uv lock --upgrade` — regenerate lockfile with latest versions
+  - Manual version edits bypass uv's resolver and can produce inconsistent lockfiles
 
 ## Test patterns
 
