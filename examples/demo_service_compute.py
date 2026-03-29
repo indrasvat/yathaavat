@@ -51,12 +51,14 @@ def mandelbrot_ascii(*, width: int, height: int, max_iter: int) -> str:
 
     shades = " .:-=+*#%@"
     rows: list[str] = []
+    h_denom = max(height - 1, 1)
+    w_denom = max(width - 1, 1)
 
     for y in range(height):
-        cy = (y / (height - 1)) * 2.0 - 1.0
+        cy = (y / h_denom) * 2.0 - 1.0
         row_chars: list[str] = []
         for x in range(width):
-            cx = (x / (width - 1)) * 3.0 - 2.0
+            cx = (x / w_denom) * 3.0 - 2.0
             c = complex(cx, cy)
             z = 0j
             it = 0
