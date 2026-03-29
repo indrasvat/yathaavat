@@ -1,9 +1,19 @@
 # lefthook.yml — Git hooks configuration
-# Pre-commit: fast checks (format + lint) — keeps commits clean
-# Pre-push: full CI gate (format + lint + typecheck + test + shellcheck)
+# Pre-commit: block main commits + fast checks (format + lint)
+# Pre-push: block main pushes + full CI gate
 
 pre-commit:
   commands:
+    protect-main:
+      run: |
+        branch=$(git rev-parse --abbrev-ref HEAD)
+        if [ "$branch" = "main" ]; then
+          printf "\033[31mERROR\033[0m Commits directly to main are not allowed.\n"
+          printf "  Create a branch: git checkout -b <type>/<name>\n"
+          printf "  Types: feat/ fix/ refactor/ test/ docs/ chore/\n"
+          exit 1
+        fi
+      fail_text: "Direct commits to main are blocked. Use a feature branch."
     format:
       run: make format-check
       fail_text: "Formatting check failed! Run `make format` to fix."
@@ -13,6 +23,15 @@ pre-commit:
 
 pre-push:
   commands:
+    protect-main:
+      run: |
+        branch=$(git rev-parse --abbrev-ref HEAD)
+        if [ "$branch" = "main" ]; then
+          printf "\033[31mERROR\033[0m Pushing directly to main is not allowed.\n"
+          printf "  Create a branch, push it, and open a PR.\n"
+          exit 1
+        fi
+      fail_text: "Direct pushes to main are blocked. Use a PR."
     ci:
       run: make ci
       fail_text: "CI failed! Run `make ci` locally to debug."
