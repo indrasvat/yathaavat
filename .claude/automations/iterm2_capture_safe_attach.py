@@ -3,8 +3,44 @@
 # dependencies = [
 #   "iterm2",
 #   "pyobjc",
+#   "pyobjc-framework-Quartz",
 # ]
 # ///
+"""iTerm2 visual test: safe attach to a running Python process.
+
+Tests
+-----
+1. Background process — Python sleep process started, PID captured
+2. TUI startup — yathaavat launches with DISCONNECTED state
+3. Attach picker — Ctrl+A opens, PID entered and submitted
+4. Attach result — either PAUSED (success) or actionable error message
+5. Cleanup — background process killed, TUI quit
+
+Verification Strategy
+---------------------
+- Start a long-running Python process in the project .venv (has debugpy available)
+- Capture PID via pidfile written by the process itself
+- Drive attach via Ctrl+A with PID search/enter
+- Accept either PAUSED (attach succeeded) or known error messages
+  (safe attach often fails on macOS without elevated privileges — this is expected)
+- Screenshot captures both success and failure states for visual inspection
+
+Screenshots
+-----------
+- tui_safe_attach.png       — Successful PAUSED after safe attach (if it works)
+- tui_safe_attach_fail.png  — Error state (if attach fails due to permissions)
+
+Key Bindings Tested
+-------------------
+Ctrl+A (attach), c (continue), Ctrl+Q (quit)
+
+Usage
+-----
+    uv run .claude/automations/iterm2_capture_safe_attach.py
+
+Note: On macOS, safe attach typically requires `sudo` or SIP adjustments.
+A "failed" result is expected without elevated privileges.
+"""
 
 from __future__ import annotations
 
@@ -17,26 +53,27 @@ from pathlib import Path
 
 import iterm2
 import iterm2.rpc
-from Quartz import (
-    CGWindowListCopyWindowInfo,
-    kCGNullWindowID,
-    kCGWindowListOptionOnScreenOnly,
-)
+import Quartz
 
 TOTAL_TIMEOUT_S = 90.0
 MIN_WINDOW_WIDTH_PX = 1400
 MIN_WINDOW_HEIGHT_PX = 900
 
 
+# ---------------------------------------------------------------------------
+# Helpers
+# ---------------------------------------------------------------------------
+
+
 def _ensure_iterm2_running() -> None:
-    running = (
-        subprocess.run(["pgrep", "-x", "iTerm2"], check=False, capture_output=True).returncode == 0
-    )
-    if running:
+    if subprocess.run(["pgrep", "-x", "iTerm2"], check=False, capture_output=True).returncode == 0:
         return
     subprocess.run(["open", "-a", "iTerm"], check=False)
     for _ in range(30):
-        if subprocess.run(["pgrep", "-x", "iTerm2"], check=False).returncode == 0:
+        if (
+            subprocess.run(["pgrep", "-x", "iTerm2"], check=False, capture_output=True).returncode
+            == 0
+        ):
             return
         time.sleep(0.2)
     raise RuntimeError("iTerm2 did not start in time")
@@ -47,32 +84,43 @@ def _repo_root() -> Path:
     for parent in [here, *here.parents]:
         if (parent / "pyproject.toml").exists():
             return parent
-    msg = f"Could not find repo root from {here}"
-    raise RuntimeError(msg)
+    raise RuntimeError(f"Could not find repo root from {here}")
 
 
 def _artifacts_dir() -> Path:
-    root = _repo_root()
-    out = root / ".claude" / "artifacts" / "screenshots"
+    out = _repo_root() / ".claude" / "artifacts" / "screenshots"
     out.mkdir(parents=True, exist_ok=True)
     return out
 
 
-def _frontmost_iterm2_cgwindow_id() -> int | None:
-    windows = CGWindowListCopyWindowInfo(kCGWindowListOptionOnScreenOnly, kCGNullWindowID)
-    for w in windows or []:
-        if w.get("kCGWindowOwnerName") == "iTerm2" and w.get("kCGWindowLayer") == 0:
+def _screencapture(path: Path, *, frame: iterm2.util.Frame | None = None) -> None:
+    window_list = Quartz.CGWindowListCopyWindowInfo(
+        Quartz.kCGWindowListOptionOnScreenOnly | Quartz.kCGWindowListExcludeDesktopElements,
+        Quartz.kCGNullWindowID,
+    )
+    best_id: int | None = None
+    best_score = float("inf")
+    for w in window_list or []:
+        if "iTerm" not in w.get("kCGWindowOwnerName", ""):
+            continue
+        if frame is not None:
+            b = w.get("kCGWindowBounds", {})
+            score = (
+                abs(float(b.get("X", 0)) - frame.origin.x) * 2
+                + abs(float(b.get("Width", 0)) - frame.size.width)
+                + abs(float(b.get("Height", 0)) - frame.size.height)
+            )
+            if score < best_score:
+                best_score, best_id = score, w.get("kCGWindowNumber")
+        else:
             win_id = w.get("kCGWindowNumber")
             if isinstance(win_id, int):
-                return win_id
-    return None
-
-
-def _screencapture(path: Path) -> None:
-    win_id = _frontmost_iterm2_cgwindow_id()
-    if win_id is None:
-        raise RuntimeError("Could not find iTerm2 window id for screencapture")
-    subprocess.run(["screencapture", "-x", "-l", str(win_id), str(path)], check=True)
+                best_id = win_id
+                break
+    if best_id is not None:
+        subprocess.run(["screencapture", "-x", "-l", str(best_id), str(path)], check=True)
+    else:
+        raise RuntimeError("Could not find iTerm2 window for screencapture")
 
 
 async def _screen_text(session: iterm2.Session) -> str:
@@ -80,11 +128,10 @@ async def _screen_text(session: iterm2.Session) -> str:
         screen = await session.async_get_screen_contents()
     except iterm2.rpc.RPCException as exc:
         raise RuntimeError(f"Failed to read iTerm2 screen buffer: {exc}") from exc
-    lines = [screen.line(i).string for i in range(screen.number_of_lines)]
-    return "\n".join(lines)
+    return "\n".join(screen.line(i).string for i in range(screen.number_of_lines))
 
 
-async def _wait_for_screen_contains(session: iterm2.Session, needle: str, timeout_s: float) -> str:
+async def _wait_for(session: iterm2.Session, needle: str, timeout_s: float) -> str:
     deadline = time.monotonic() + timeout_s
     last = ""
     while time.monotonic() < deadline:
@@ -92,13 +139,10 @@ async def _wait_for_screen_contains(session: iterm2.Session, needle: str, timeou
         if needle in last:
             return last
         await asyncio.sleep(0.25)
-    msg = f"Timed out waiting for screen to contain {needle!r}"
-    raise TimeoutError(msg)
+    raise TimeoutError(f"Timed out ({timeout_s}s) waiting for: {needle!r}")
 
 
-async def _wait_for_screen_contains_any(
-    session: iterm2.Session, needles: list[str], timeout_s: float
-) -> str:
+async def _wait_for_any(session: iterm2.Session, needles: list[str], timeout_s: float) -> str:
     deadline = time.monotonic() + timeout_s
     last = ""
     while time.monotonic() < deadline:
@@ -106,19 +150,37 @@ async def _wait_for_screen_contains_any(
         if any(n in last for n in needles):
             return last
         await asyncio.sleep(0.25)
-    msg = f"Timed out waiting for screen to contain any of: {needles!r}"
-    raise TimeoutError(msg)
+    raise TimeoutError(f"Timed out ({timeout_s}s) waiting for any of: {needles!r}")
 
 
-async def main(connection: iterm2.Connection) -> None:
-    _ensure_iterm2_running()
+async def _create_window(
+    connection: iterm2.Connection,
+    name: str = "test",
+) -> tuple[iterm2.Window, iterm2.Session]:
+    window = await iterm2.Window.async_create(connection)
+    await asyncio.sleep(0.5)
 
     app = await iterm2.async_get_app(connection)
-    await app.async_activate(raise_all_windows=False)
-    window = await iterm2.Window.async_create(connection)
     if window is None:
-        raise RuntimeError("Could not create iTerm2 automation window")
+        raise RuntimeError("Could not create iTerm2 window")
+    if window.current_tab is None:
+        for w in app.terminal_windows:
+            if w.window_id == window.window_id:
+                window = w
+                break
+
+    for _ in range(20):
+        if window.current_tab and window.current_tab.current_session:
+            break
+        await asyncio.sleep(0.2)
+
+    if not window.current_tab or not window.current_tab.current_session:
+        raise RuntimeError(f"Window {name!r} not ready after refresh")
+
+    session = window.current_tab.current_session
+    await session.async_set_name(name)
     await window.async_activate()
+
     try:
         frame = await window.async_get_frame()
         width = max(frame.size.width, MIN_WINDOW_WIDTH_PX)
@@ -133,30 +195,33 @@ async def main(connection: iterm2.Connection) -> None:
     except Exception:
         pass
 
-    root = _repo_root()
-    out_dir = _artifacts_dir()
+    return window, session
 
-    async def _cleanup() -> None:
-        if window is not None:
-            with contextlib.suppress(Exception):
-                await window.async_close(force=True)
+
+# ---------------------------------------------------------------------------
+# Main test flow
+# ---------------------------------------------------------------------------
+
+
+async def main(connection: iterm2.Connection) -> None:
+    _ensure_iterm2_running()
+
+    window, session = await _create_window(connection, name="yathaavat-safe-attach")
+    root = _repo_root()
+    out = _artifacts_dir()
 
     pid: int | None = None
     pidfile: Path | None = None
-    session: iterm2.Session | None = None
-    try:
-        tab = await window.async_create_tab()
-        session = tab.current_session
-        if session is None:
-            raise RuntimeError("iTerm2 did not create a yathaavat session")
-        await session.async_set_name("yathaavat-safe-attach")
-        await session.async_activate()
-        await tab.async_activate()
 
+    async def _cleanup() -> None:
+        with contextlib.suppress(Exception):
+            await window.async_close(force=True)
+
+    try:
         await session.async_send_text(f"cd {root}\n")
         await session.async_send_text("clear\n")
 
-        # Start a long-running Python process in the project env so it has debugpy available.
+        # --- Test 1: Start background Python process ---
         pidfile = Path("/tmp") / f"yathaavat_safe_pid_{time.time_ns()}.txt"
         code = (
             "import os, pathlib, time; "
@@ -170,21 +235,23 @@ async def main(connection: iterm2.Connection) -> None:
         if not pidfile.exists():
             raise RuntimeError(f"Timed out waiting for pidfile {pidfile}")
         pid = int(pidfile.read_text(encoding="utf-8").strip())
+        print(f"[1/5] Background process started: PID {pid}")
 
+        # --- Test 2: Launch TUI ---
         await session.async_send_text("make run\n")
-        await _wait_for_screen_contains(session, "Ctrl+P palette", timeout_s=25)
+        await _wait_for(session, "Ctrl+P palette", timeout_s=25)
+        print("[2/5] TUI startup: PASS")
 
-        safe_png = out_dir / "tui_safe_attach.png"
-        fail_png = out_dir / "tui_safe_attach_fail.png"
-        fail_txt = out_dir / "tui_safe_attach_fail.txt"
+        frame = await window.async_get_frame()
 
-        # Open attach picker and safe attach to PID via Enter in the search box.
+        # --- Test 3: Open attach picker ---
         await session.async_send_text("\x01")  # Ctrl+A
-        await _wait_for_screen_contains(session, "Attach to Process", timeout_s=6)
+        await _wait_for(session, "Attach to Process", timeout_s=6)
         await session.async_send_text(f"{pid}\r")
+        print("[3/5] Attach picker opened, PID submitted")
 
-        # Wait for either a successful stop, or a known attach failure message.
-        screen = await _wait_for_screen_contains_any(
+        # --- Test 4: Wait for attach result ---
+        screen = await _wait_for_any(
             session,
             [
                 "PAUSED",
@@ -196,40 +263,49 @@ async def main(connection: iterm2.Connection) -> None:
         )
 
         if "PAUSED" in screen:
-            _screencapture(safe_png)
-            print(f"Wrote {safe_png}")
+            _screencapture(out / "tui_safe_attach.png", frame=frame)
+            print("[4/5] Safe attach: PAUSED (SUCCESS)")
+            # Resume before quitting
+            await session.async_send_text("c")
+            await asyncio.sleep(0.6)
         else:
-            fail_text = await _screen_text(session)
-            fail_txt.write_text(fail_text, encoding="utf-8")
-            _screencapture(fail_png)
-            print(f"Wrote {fail_png}")
-            print(f"Wrote {fail_txt}")
-            print(
-                "Safe attach did not reach PAUSED; this is often expected on macOS without privileges."
+            (out / "tui_safe_attach_fail.txt").write_text(
+                await _screen_text(session), encoding="utf-8"
             )
+            _screencapture(out / "tui_safe_attach_fail.png", frame=frame)
+            print("[4/5] Safe attach: EXPECTED FAILURE (permissions)")
+            print("       This is normal on macOS without elevated privileges.")
 
-        # Resume and quit.
-        await session.async_send_text("c")
-        await asyncio.sleep(0.6)
+        # --- Test 5: Clean quit ---
         await session.async_send_text("\x11")  # Ctrl+Q
         await asyncio.sleep(0.5)
-
-        # Clean up the background process (best-effort).
         await session.async_send_text(f"kill {pid} >/dev/null 2>&1 || true\n")
         pidfile.unlink(missing_ok=True)
         await asyncio.sleep(0.2)
+        print("[5/5] Cleanup: PASS")
 
-        # Note: the safe attach flow may not have succeeded; screenshots/logs were already printed.
-    finally:
-        if session is not None and pid is not None:
+        print("\nAll safe-attach tests completed.")
+
+    except Exception:
+        if session is not None:
             with contextlib.suppress(Exception):
-                await session.async_send_text(f"kill {pid} >/dev/null 2>&1 || true\n")
+                txt = await _screen_text(session)
+                (out / "tui_safe_attach_error.txt").write_text(txt, encoding="utf-8")
+                _screencapture(out / "tui_safe_attach_error.png")
+                await session.async_send_text("\x11")
+        raise
+    finally:
+        if pid is not None:
+            with contextlib.suppress(Exception):
+                if session is not None:
+                    await session.async_send_text(f"kill {pid} >/dev/null 2>&1 || true\n")
         if pidfile is not None:
             pidfile.unlink(missing_ok=True)
         await asyncio.shield(_cleanup())
 
 
 if __name__ == "__main__":
+
     async def _run(connection: iterm2.Connection) -> None:
         loop = asyncio.get_running_loop()
 

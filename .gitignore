@@ -29,5 +29,7 @@ build/
 *.log
 *.zip
 
-# Local automations artifacts
-.claude/
+# Claude Code local artifacts (screenshots, caches) — NOT automation scripts
+.claude/artifacts/
+.claude/screenshots/
+.codemap/
