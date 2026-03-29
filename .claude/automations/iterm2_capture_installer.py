@@ -42,6 +42,7 @@ Usage
 -----
     uv run .claude/automations/iterm2_capture_installer.py
 """
+
 from __future__ import annotations
 
 import asyncio
@@ -67,19 +68,12 @@ SESSION_PREFIX = "installer-test"
 
 
 def _ensure_iterm2_running() -> None:
-    if (
-        subprocess.run(
-            ["pgrep", "-x", "iTerm2"], check=False, capture_output=True
-        ).returncode
-        == 0
-    ):
+    if subprocess.run(["pgrep", "-x", "iTerm2"], check=False, capture_output=True).returncode == 0:
         return
     subprocess.run(["open", "-a", "iTerm"], check=False)
     for _ in range(30):
         if (
-            subprocess.run(
-                ["pgrep", "-x", "iTerm2"], check=False, capture_output=True
-            ).returncode
+            subprocess.run(["pgrep", "-x", "iTerm2"], check=False, capture_output=True).returncode
             == 0
         ):
             return

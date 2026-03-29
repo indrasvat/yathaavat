@@ -14,9 +14,7 @@ class Args:
 
 def _parse_args(argv: list[str] | None) -> Args:
     parser = argparse.ArgumentParser(prog="yathaavat", add_help=True)
-    parser.add_argument(
-        "-V", "--version", action="version", version=f"%(prog)s {__version__}"
-    )
+    parser.add_argument("-V", "--version", action="version", version=f"%(prog)s {__version__}")
     parser.add_argument(
         "command",
         nargs="?",
