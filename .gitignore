@@ -1,0 +1,36 @@
+.DS_Store
+.idea/
+.vscode/
+
+# Python / uv
+.venv/
+venv/
+__pycache__/
+*.py[cod]
+*.pyo
+*.pyd
+.pytest_cache/
+.ruff_cache/
+.mypy_cache/
+.coverage
+coverage.xml
+htmlcov/
+.local/
+
+# Env files
+*.env
+
+# Build artifacts
+dist/
+build/
+*.egg-info/
+src/yathaavat/_version.py
+
+# Logs / bundles
+*.log
+*.zip
+
+# Claude Code local artifacts (screenshots, caches) — NOT automation scripts
+.claude/artifacts/
+.claude/screenshots/
+.codemap/

@@ -1,0 +1,18 @@
+# lefthook.yml — Git hooks configuration
+# Pre-commit: fast checks (format + lint) — keeps commits clean
+# Pre-push: full CI gate (format + lint + typecheck + test + shellcheck)
+
+pre-commit:
+  commands:
+    format:
+      run: make format-check
+      fail_text: "Formatting check failed! Run `make format` to fix."
+    lint:
+      run: make lint
+      fail_text: "Lint failed! Run `make lint` to see issues."
+
+pre-push:
+  commands:
+    ci:
+      run: make ci
+      fail_text: "CI failed! Run `make ci` locally to debug."
