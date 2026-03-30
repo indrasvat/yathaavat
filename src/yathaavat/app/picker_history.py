@@ -68,12 +68,15 @@ class PickerHistory:
         payload = json.dumps(data, indent=2)
         self._path.parent.mkdir(parents=True, exist_ok=True)
         fd, tmp = tempfile.mkstemp(dir=self._path.parent, suffix=".tmp")
+        closed = False
         try:
             os.write(fd, payload.encode("utf-8"))
             os.close(fd)
+            closed = True
             os.replace(tmp, self._path)
         except BaseException:
-            os.close(fd) if not os.get_inheritable(fd) else None
+            if not closed:
+                os.close(fd)
             try:
                 os.unlink(tmp)
             except OSError:

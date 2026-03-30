@@ -282,11 +282,12 @@ class ConnectPicker(ModalScreen[None]):
             self.app.pop_screen()
             return
 
-        # Save to history
+        # Save to history — use the resolved endpoint as label, not the raw query
+        endpoint = f"{host}:{port}"
         self._history.push(
             HistoryEntry(
-                command=f"{host}:{port}",
-                label=raw.strip(),
+                command=endpoint,
+                label=endpoint,
                 timestamp=PickerHistory.now(),
             )
         )

@@ -184,8 +184,9 @@ class LaunchPicker(ModalScreen[None]):
             if lv.index < len(items):
                 item = items[lv.index]
                 cmd = getattr(item, "launch_command", None)
+                kind = getattr(item, "row_kind", "")
                 if isinstance(cmd, str) and cmd:
-                    self._do_launch(cmd)
+                    self._do_launch(cmd, kind=kind if isinstance(kind, str) else "")
                     return
 
         # Fall back to raw input
@@ -194,10 +195,14 @@ class LaunchPicker(ModalScreen[None]):
     @on(ListView.Selected, "#launch_list")
     def _on_selected(self, event: ListView.Selected) -> None:
         cmd = getattr(event.item, "launch_command", None)
+        kind = getattr(event.item, "row_kind", "")
         if isinstance(cmd, str) and cmd:
-            self._do_launch(cmd)
+            self._do_launch(cmd, kind=kind if isinstance(kind, str) else "")
 
-    def _do_launch(self, raw: str) -> None:
+    def _do_launch(self, raw: str, *, kind: str = "") -> None:
+        # For discovered files, quote the path to handle spaces
+        if kind == "file":
+            raw = shlex.quote(raw)
         # Expand tilde in the command
         expanded = _expand_tilde(raw)
         spec = parse_launch_spec(expanded)
@@ -216,9 +221,9 @@ class LaunchPicker(ModalScreen[None]):
             self.app.pop_screen()
             return
 
-        # Save to history
+        # Save to history with the expanded (absolute) command for cross-cwd portability
         self._history.push(
-            HistoryEntry(command=raw.strip(), label=raw.strip(), timestamp=PickerHistory.now())
+            HistoryEntry(command=expanded.strip(), label=raw.strip(), timestamp=PickerHistory.now())
         )
 
         self._ctx.host.notify("Launching…", timeout=2.0)
