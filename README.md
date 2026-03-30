@@ -49,8 +49,9 @@ Inside the TUI, press `Ctrl+R` and type `examples/demo_target.py` to launch a de
 - **Three debug workflows** — Launch a script (`Ctrl+R`), connect to a debugpy server (`Ctrl+K`), or attach to a running process by PID (`Ctrl+A`)
 - **Breakpoints** — toggle at cursor, add by `file:line` with conditions / hit counts / logpoints, queued while disconnected and auto-applied on connect
 - **Source navigation** — inline Find (`Ctrl+F`), Go to line (`Ctrl+G`), Jump to execution (`Ctrl+E`), Run to cursor (`Enter`)
+- **Exception panel** — structured traceback tree on exception stops, chained exceptions with `↳ caused by:` / `↳ during handling:` labels, ExceptionGroup support, jump to frame (`Enter`), copy traceback (`y`), add breakpoint at raise site (`a`)
 - **Inspection** — expandable locals tree, watch expressions with change tracking, expression console with DAP tab-completion
-- **Tri-pane layout** — Stack + Breakpoints | Source | Locals + Watches, with Console and Transcript below
+- **Tri-pane layout** — Stack + Breakpoints | Source | Locals + Watches + Exception, with Console and Transcript below
 - **Command palette** — `Ctrl+P` for fuzzy search across all commands with keybinding hints
 - **Gutter markers** — `●` verified, `◌` pending, `✗` failed, `▶` execution line
 - **Zoom** — `F2` maximizes any pane, `F2` again restores layout
@@ -75,6 +76,8 @@ Inside the TUI, press `Ctrl+R` and type `examples/demo_target.py` to launch a de
 | `Ctrl+G` | Go to line |
 | `Ctrl+E` | Jump to execution line |
 | `Enter` | Run to cursor (Source, paused) |
+| `y` | Copy traceback (Exception panel) |
+| `a` | Add breakpoint at frame (Exception panel) |
 | `F2` | Zoom / unzoom focused pane |
 | `Tab` | Cycle focus between panes |
 | `Esc` | Close dialog / cancel |

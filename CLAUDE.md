@@ -267,6 +267,6 @@ Load the `gh-ghent` skill and follow PR monitoring/review comment flow:
 
 ## Implementation status (vs DESIGN_v2.md)
 
-Implemented: session state machine, DAP client, launch/connect/attach, breakpoints (toggle/conditions/logpoints/queued), stepping, source view (gutter markers, find, go-to-line, run-to-cursor), stack, locals (expansion), watches, console (expression editor + completions), transcript, threads, command palette, status/help chrome, layout breakpoints.
+Implemented: session state machine, DAP client, launch/connect/attach, breakpoints (toggle/conditions/logpoints/queued), stepping, source view (gutter markers, find, go-to-line, run-to-cursor), stack, locals (expansion), watches, console (expression editor + completions), transcript, threads, command palette, status/help chrome, layout breakpoints, exception panel (traceback tree, chained exceptions, ExceptionGroup, exception breakpoints).
 
-Not yet started: safe attach via `sys.remote_exec` (M3), exception panel, async tasks panel, process tree, settings panel, theming/ASCII mode, transcript JSONL export, doctor bundle, plugin renderers.
+Not yet started: safe attach via `sys.remote_exec` (M3), async tasks panel, process tree, settings panel, theming/ASCII mode, transcript JSONL export, doctor bundle, plugin renderers.
