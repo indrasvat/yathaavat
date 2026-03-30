@@ -14,6 +14,20 @@ class SessionState(StrEnum):
     PAUSED = "PAUSED"
 
 
+class BreakMode(StrEnum):
+    NEVER = "never"
+    ALWAYS = "always"
+    UNHANDLED = "unhandled"
+    USER_UNHANDLED = "userUnhandled"
+
+
+class ExceptionRelation(StrEnum):
+    ROOT = "root"
+    CAUSE = "cause"
+    CONTEXT = "context"
+    GROUP_MEMBER = "member"
+
+
 @dataclass(frozen=True, slots=True)
 class ThreadInfo:
     id: int
@@ -56,6 +70,32 @@ class WatchInfo:
 
 
 @dataclass(frozen=True, slots=True)
+class TracebackFrame:
+    path: str | None
+    line: int | None
+    name: str
+    text: str | None = None
+
+
+@dataclass(frozen=True, slots=True)
+class ExceptionNode:
+    type_name: str
+    message: str
+    frames: tuple[TracebackFrame, ...] = ()
+    children: tuple[ExceptionNode, ...] = ()
+    relation: ExceptionRelation = ExceptionRelation.ROOT
+    is_group: bool = False
+
+
+@dataclass(frozen=True, slots=True)
+class ExceptionInfo:
+    exception_id: str
+    break_mode: BreakMode
+    stack_trace: str
+    tree: ExceptionNode
+
+
+@dataclass(frozen=True, slots=True)
 class CompletionItem:
     label: str
     insert_text: str
@@ -79,6 +119,7 @@ class SessionSnapshot:
     source_col: int | None = None
     stop_reason: str | None = None
     stop_description: str | None = None
+    exception_info: ExceptionInfo | None = None
     locals: tuple[VariableInfo, ...] = ()
     watches: tuple[WatchInfo, ...] = ()
     breakpoints: tuple[BreakpointInfo, ...] = ()
@@ -191,6 +232,11 @@ class BreakpointConfigManager(SessionManager, Protocol):
         hit_condition: str | None = None,
         log_message: str | None = None,
     ) -> None: ...
+
+
+@runtime_checkable
+class ExceptionInfoManager(SessionManager, Protocol):
+    async def get_exception_info(self, thread_id: int) -> ExceptionInfo | None: ...
 
 
 @runtime_checkable
