@@ -46,7 +46,7 @@ Inside the TUI, press `Ctrl+R` and type `examples/demo_target.py` to launch a de
 
 ## Features
 
-- **Three debug workflows** — Launch a script (`Ctrl+R`), connect to a debugpy server (`Ctrl+K`), or attach to a running process by PID (`Ctrl+A`)
+- **Three debug workflows** — Launch a script (`Ctrl+R`), connect to a debugpy server (`Ctrl+K`), or attach to a running process by PID (`Ctrl+A`) — all with fuzzy file/server discovery, MRU history, and `~` path expansion
 - **Breakpoints** — toggle at cursor, add by `file:line` with conditions / hit counts / logpoints, queued while disconnected and auto-applied on connect
 - **Source navigation** — inline Find (`Ctrl+F`), Go to line (`Ctrl+G`), Jump to execution (`Ctrl+E`), Run to cursor (`Enter`)
 - **Exception panel** — structured traceback tree on exception stops, chained exceptions with `↳ caused by:` / `↳ during handling:` labels, ExceptionGroup support, jump to frame (`Enter`), copy traceback (`y`), add breakpoint at raise site (`a`)
