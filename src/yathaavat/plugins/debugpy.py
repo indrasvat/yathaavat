@@ -15,8 +15,8 @@ from secrets import token_hex
 from time import monotonic
 from typing import override
 
-from yathaavat.app.connect import ConnectDialog
-from yathaavat.app.launch import LaunchDialog
+from yathaavat.app.connect import ConnectPicker
+from yathaavat.app.launch import LaunchPicker
 from yathaavat.core import (
     SESSION_MANAGER,
     SESSION_STORE,
@@ -1204,7 +1204,7 @@ class DebugpyPlugin(Plugin):
                     summary="Connect to a debugpy server on host:port.",
                     default_keys=("ctrl+k",),
                 ),
-                handler=lambda: ctx.host.push_screen(ConnectDialog(ctx=ctx)),
+                handler=lambda: ctx.host.push_screen(ConnectPicker(ctx=ctx)),
             )
         )
         ctx.commands.register(
@@ -1215,7 +1215,7 @@ class DebugpyPlugin(Plugin):
                     summary="Launch a Python target under debugpy.",
                     default_keys=("ctrl+r",),
                 ),
-                handler=lambda: ctx.host.push_screen(LaunchDialog(ctx=ctx)),
+                handler=lambda: ctx.host.push_screen(LaunchPicker(ctx=ctx)),
             )
         )
         ctx.commands.register(

@@ -184,28 +184,30 @@ class YathaavatApp(App[None]):
     .attach_row { color: $fg; }
 
     #connect_root {
-      width: 70%;
-      max-width: 90;
-      height: 30%;
+      width: 80%;
+      max-width: 120;
+      height: 65%;
       border: round $border_modal;
       background: $bg_modal;
       padding: 1 1;
     }
     #connect_title { color: $accent; height: 1; }
     #connect_input { margin-top: 1; }
-    #connect_hint { margin-top: 1; color: $fg_muted; }
+    #connect_list { margin-top: 1; }
+    .connect_row { color: $fg; }
 
     #launch_root {
       width: 86%;
       max-width: 130;
-      height: 34%;
+      height: 70%;
       border: round $border_modal;
       background: $bg_modal;
       padding: 1 1;
     }
     #launch_title { color: $accent; height: 1; }
     #launch_input { margin-top: 1; }
-    #launch_hint { margin-top: 1; color: $fg_muted; }
+    #launch_list { margin-top: 1; }
+    .launch_row { color: $fg; }
 
     #bp_root {
       width: 70%;
