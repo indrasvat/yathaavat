@@ -121,6 +121,12 @@ class YathaavatApp(App[None]):
     #source_view .text-area--cursor-line { background: $cursor_line_bg; }
     #source_view .text-area--selection { background: $selection_bg_focus; }
 
+    #exc_header { height: 1; padding: 0 1; background: $bg_panel_muted; color: $danger; }
+    #exc_tree { height: 1fr; background: $bg; }
+    #exc_tree > .tree--cursor { background: $selection_bg; }
+    #exc_tree:focus > .tree--cursor { background: $selection_bg_focus; text-style: bold; }
+    #exc_tree > .tree--guides { color: $fg_dim; }
+
     #locals_table { height: 1fr; background: $bg; }
     #watches_table { height: 1fr; background: $bg; }
     #breakpoints_table { height: 1fr; background: $bg; }

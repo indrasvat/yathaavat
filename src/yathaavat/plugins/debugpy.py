@@ -21,10 +21,12 @@ from yathaavat.core import (
     SESSION_MANAGER,
     SESSION_STORE,
     AppContext,
+    BreakMode,
     BreakpointInfo,
     Command,
     CommandSpec,
     CompletionItem,
+    ExceptionInfo,
     FrameInfo,
     Plugin,
     SessionState,
@@ -37,6 +39,7 @@ from yathaavat.core import (
 from yathaavat.core.dap import DapClient, DapRequestError
 from yathaavat.core.services import ServiceRegistrationError
 from yathaavat.core.session import SessionManager
+from yathaavat.core.traceback_parser import build_exception_tree
 
 
 def _pick_free_port() -> int:
@@ -230,6 +233,7 @@ class DebugpySessionManager(SessionManager):
             )
             await asyncio.wait_for(self._initialized.wait(), timeout=10.0)
             await self._sync_all_breakpoints()
+            await self._sync_exception_breakpoints()
             config_task = asyncio.create_task(self._dap.request("configurationDone", {}))
             await attach_task
             await config_task
@@ -459,6 +463,52 @@ class DebugpySessionManager(SessionManager):
             args["frameId"] = frame_id
         resp = await dap.request("evaluate", args)
         return str(_body(resp).get("result") or "")
+
+    async def get_exception_info(self, thread_id: int) -> ExceptionInfo | None:
+        dap = self._require_dap()
+        try:
+            resp = await dap.request("exceptionInfo", {"threadId": thread_id})
+        except DapRequestError:
+            return None
+        body = _body(resp)
+        exception_id = body.get("exceptionId")
+        if not isinstance(exception_id, str):
+            return None
+        description = str(body.get("description") or "")
+        break_mode_raw = str(body.get("breakMode") or "unhandled")
+        try:
+            break_mode = BreakMode(break_mode_raw)
+        except ValueError:
+            break_mode = BreakMode.UNHANDLED
+        details = body.get("details")
+        stack_trace = ""
+        if isinstance(details, dict):
+            st = details.get("stackTrace")
+            if isinstance(st, str):
+                stack_trace = st
+        return build_exception_tree(
+            exception_id=exception_id,
+            description=description,
+            break_mode=break_mode,
+            stack_trace=stack_trace,
+        )
+
+    async def _fetch_exception_info(self, thread_id: int) -> None:
+        try:
+            info = await self.get_exception_info(thread_id)
+        except Exception:
+            info = None
+        # Guard against stale writes: only update if we're still paused on an exception
+        # for the same thread. The session may have continued or disconnected while we
+        # were awaiting the exceptionInfo response.
+        snap = self.store.snapshot()
+        if (
+            snap.state != SessionState.PAUSED
+            or snap.stop_reason != "exception"
+            or snap.selected_thread_id != thread_id
+        ):
+            return
+        self.store.update(exception_info=info)
 
     async def complete(self, text: str, *, cursor: int) -> tuple[CompletionItem, ...]:
         dap = self._require_dap()
@@ -737,6 +787,7 @@ class DebugpySessionManager(SessionManager):
             source_col=None,
             stop_reason=None,
             stop_description=None,
+            exception_info=None,
             locals=(),
             watches=reset_watches,
             breakpoints=queued_breakpoints,
@@ -765,6 +816,7 @@ class DebugpySessionManager(SessionManager):
                     selected_frame_id=None,
                     stop_reason=None,
                     stop_description=None,
+                    exception_info=None,
                 )
             case "stopped":
                 reason = body.get("reason")
@@ -794,6 +846,13 @@ class DebugpySessionManager(SessionManager):
                 if isinstance(thread_to_refresh, int):
                     await self._refresh_frames(thread_to_refresh)
                     await self._run_to_cursor_maybe_complete()
+
+                # Fetch exception info non-blocking for exception stops.
+                if reason == "exception" and isinstance(thread_to_refresh, int):
+                    task = asyncio.create_task(self._fetch_exception_info(thread_to_refresh))
+                    task.add_done_callback(lambda _t: None)
+                else:
+                    self.store.update(exception_info=None)
 
                 if self._auto_resume_pending:
                     self._auto_resume_pending = False
@@ -936,6 +995,16 @@ class DebugpySessionManager(SessionManager):
             return
         for path, lines in sorted(self._breakpoints.items()):
             await self._set_breakpoints(path, sorted(lines))
+
+    async def _sync_exception_breakpoints(self) -> None:
+        dap = self._require_dap()
+        try:
+            await dap.request(
+                "setExceptionBreakpoints",
+                {"filters": ["uncaught"]},
+            )
+        except DapRequestError:
+            pass
 
     async def _set_breakpoints(self, path: str, lines: list[int]) -> None:
         dap = self._require_dap()

@@ -4,6 +4,7 @@ from dataclasses import dataclass
 from typing import override
 
 from yathaavat.app.breakpoint import BreakpointDialog
+from yathaavat.app.exception import ExceptionPanel
 from yathaavat.app.panels import (
     BreakpointsPanel,
     ConsolePanel,
@@ -379,6 +380,14 @@ class BuiltinPlugin(Plugin):
                 title="Source",
                 slot=Slot.CENTER,
                 factory=lambda _ctx: SourcePanel(ctx=_ctx),
+            )
+        )
+        ctx.widgets.register(
+            WidgetContribution(
+                id="builtin.exception",
+                title="Exception",
+                slot=Slot.RIGHT,
+                factory=lambda _ctx: ExceptionPanel(ctx=_ctx),
             )
         )
         ctx.widgets.register(

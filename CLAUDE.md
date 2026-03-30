@@ -265,8 +265,32 @@ Load the `gh-ghent` skill and follow PR monitoring/review comment flow:
 - Re-run `make check` after each round of changes
 - Request re-review once all comments are addressed
 
+### 11. Merge, release, and verify
+
+```bash
+# Squash-merge the PR and delete the remote branch
+gh pr merge <PR-number> --squash --delete-branch
+
+# Switch to main and pull the merge commit
+git checkout main
+git pull origin main
+
+# Wait for CI to pass on main
+gh run watch
+
+# Tag a new minor version (bump from current)
+make release V=x.y.z    # runs local checks, tags, pushes
+
+# Wait for the release CI workflow to complete
+gh run watch
+
+# Install the released version and verify
+curl -fsSL https://raw.githubusercontent.com/indrasvat/yathaavat/main/install.sh | bash
+yathaavat --version
+```
+
 ## Implementation status (vs DESIGN_v2.md)
 
-Implemented: session state machine, DAP client, launch/connect/attach, breakpoints (toggle/conditions/logpoints/queued), stepping, source view (gutter markers, find, go-to-line, run-to-cursor), stack, locals (expansion), watches, console (expression editor + completions), transcript, threads, command palette, status/help chrome, layout breakpoints.
+Implemented: session state machine, DAP client, launch/connect/attach, breakpoints (toggle/conditions/logpoints/queued), stepping, source view (gutter markers, find, go-to-line, run-to-cursor), stack, locals (expansion), watches, console (expression editor + completions), transcript, threads, command palette, status/help chrome, layout breakpoints, exception panel (traceback tree, chained exceptions, ExceptionGroup, exception breakpoints).
 
-Not yet started: safe attach via `sys.remote_exec` (M3), exception panel, async tasks panel, process tree, settings panel, theming/ASCII mode, transcript JSONL export, doctor bundle, plugin renderers.
+Not yet started: safe attach via `sys.remote_exec` (M3), async tasks panel, process tree, settings panel, theming/ASCII mode, transcript JSONL export, doctor bundle, plugin renderers.
