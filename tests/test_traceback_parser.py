@@ -147,6 +147,48 @@ def test_build_tree_chained_context() -> None:
     assert ctx.relation == ExceptionRelation.CONTEXT
 
 
+_MIXED_CHAIN = """\
+Traceback (most recent call last):
+  File "db/pool.py", line 5, in connect
+    raise ConnectionError("db timeout")
+ConnectionError: db timeout
+
+During handling of the above exception, another exception occurred:
+
+Traceback (most recent call last):
+  File "app/service.py", line 10, in fetch
+    raise IOError("fetch failed")
+IOError: fetch failed
+
+The above exception was the direct cause of the following exception:
+
+Traceback (most recent call last):
+  File "app/main.py", line 3, in run
+    raise RuntimeError("total failure") from e
+RuntimeError: total failure
+"""
+
+
+def test_build_tree_mixed_chain() -> None:
+    """Traceback with both __context__ and __cause__ markers."""
+    info = build_exception_tree(
+        exception_id="RuntimeError",
+        description="total failure",
+        break_mode=BreakMode.UNHANDLED,
+        stack_trace=_MIXED_CHAIN,
+    )
+    tree = info.tree
+    assert tree.type_name == "RuntimeError"
+    assert tree.relation == ExceptionRelation.ROOT
+    assert len(tree.children) == 2
+    # First child: ConnectionError (context — "during handling")
+    assert tree.children[0].type_name == "ConnectionError"
+    assert tree.children[0].relation == ExceptionRelation.CONTEXT
+    # Second child: IOError (cause — "direct cause")
+    assert tree.children[1].type_name == "IOError"
+    assert tree.children[1].relation == ExceptionRelation.CAUSE
+
+
 def test_build_tree_exception_group_flat() -> None:
     info = build_exception_tree(
         exception_id="ExceptionGroup",

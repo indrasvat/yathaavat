@@ -496,9 +496,19 @@ class DebugpySessionManager(SessionManager):
     async def _fetch_exception_info(self, thread_id: int) -> None:
         try:
             info = await self.get_exception_info(thread_id)
-            self.store.update(exception_info=info)
         except Exception:
-            self.store.update(exception_info=None)
+            info = None
+        # Guard against stale writes: only update if we're still paused on an exception
+        # for the same thread. The session may have continued or disconnected while we
+        # were awaiting the exceptionInfo response.
+        snap = self.store.snapshot()
+        if (
+            snap.state != SessionState.PAUSED
+            or snap.stop_reason != "exception"
+            or snap.selected_thread_id != thread_id
+        ):
+            return
+        self.store.update(exception_info=info)
 
     async def complete(self, text: str, *, cursor: int) -> tuple[CompletionItem, ...]:
         dap = self._require_dap()

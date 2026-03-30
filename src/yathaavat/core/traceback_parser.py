@@ -111,18 +111,9 @@ def _extract_exception_line(text: str) -> tuple[str, str]:
 
 
 def _parse_chained(text: str) -> ExceptionNode:
+    # Split on both chain markers to handle tracebacks with mixed __cause__ and __context__.
     segments: list[tuple[str, ExceptionRelation]] = []
-
-    parts = text.split(_CAUSE_MARKER)
-    if len(parts) > 1:
-        for i, part in enumerate(parts):
-            rel = ExceptionRelation.CAUSE if i < len(parts) - 1 else ExceptionRelation.ROOT
-            segments.append((part, rel))
-    else:
-        parts = text.split(_CONTEXT_MARKER)
-        for i, part in enumerate(parts):
-            rel = ExceptionRelation.CONTEXT if i < len(parts) - 1 else ExceptionRelation.ROOT
-            segments.append((part, rel))
+    _split_on_chain_markers(text, segments)
 
     if not segments:
         return _parse_simple(text)
@@ -154,6 +145,30 @@ def _parse_chained(text: str) -> ExceptionNode:
         relation=ExceptionRelation.ROOT,
         is_group=root.is_group,
     )
+
+
+def _split_on_chain_markers(text: str, out: list[tuple[str, ExceptionRelation]]) -> None:
+    """Split text on both __cause__ and __context__ markers, preserving which marker
+    separated each segment. This handles tracebacks with mixed chain types."""
+    cause_pos = text.find(_CAUSE_MARKER)
+    context_pos = text.find(_CONTEXT_MARKER)
+
+    if cause_pos < 0 and context_pos < 0:
+        out.append((text, ExceptionRelation.ROOT))
+        return
+
+    # Find the first marker.
+    if cause_pos >= 0 and (context_pos < 0 or cause_pos < context_pos):
+        before = text[:cause_pos]
+        after = text[cause_pos + len(_CAUSE_MARKER) :]
+        out.append((before, ExceptionRelation.CAUSE))
+    else:
+        before = text[:context_pos]
+        after = text[context_pos + len(_CONTEXT_MARKER) :]
+        out.append((before, ExceptionRelation.CONTEXT))
+
+    # Recurse on the remainder (may contain more markers).
+    _split_on_chain_markers(after, out)
 
 
 def _parse_group(text: str) -> ExceptionNode:
