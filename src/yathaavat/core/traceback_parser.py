@@ -16,10 +16,8 @@ _FRAME_RE = re.compile(
 )
 
 _EXCEPTION_LINE_RE = re.compile(
-    r"^(?P<type>[A-Za-z_][\w.]*(?:Error|Exception|Warning|Group|Interrupt|Exit"
-    r"|KeyboardInterrupt|StopIteration|StopAsyncIteration|GeneratorExit"
-    r"|SystemExit|BaseException))"
-    r"(?::?\s*(?P<message>.*))?$",
+    r"^(?P<type>[A-Za-z_][\w.]*[A-Za-z])"
+    r"(?::\s*(?P<message>.*))?$",
     re.MULTILINE,
 )
 
@@ -119,29 +117,29 @@ def _parse_chained(text: str) -> ExceptionNode:
         return _parse_simple(text)
 
     # The last segment is the primary (root) exception, earlier ones are causes.
-    # Build from the innermost cause outward.
+    # Build a properly nested chain: for A → B → C, produce C(child=B(child=A)).
+    # segments[0] is the innermost (deepest cause), segments[-1] is the root.
     root_text, _root_rel = segments[-1]
     root = _parse_simple(root_text)
 
-    children: list[ExceptionNode] = []
+    # Fold causes from innermost outward, nesting each as a child of the next.
+    current_child: ExceptionNode | None = None
     for seg_text, rel in segments[:-1]:
         node = _parse_simple(seg_text)
-        children.append(
-            ExceptionNode(
-                type_name=node.type_name,
-                message=node.message,
-                frames=node.frames,
-                children=node.children,
-                relation=rel,
-                is_group=node.is_group,
-            )
+        current_child = ExceptionNode(
+            type_name=node.type_name,
+            message=node.message,
+            frames=node.frames,
+            children=(current_child,) if current_child is not None else (),
+            relation=rel,
+            is_group=node.is_group,
         )
 
     return ExceptionNode(
         type_name=root.type_name,
         message=root.message,
         frames=root.frames,
-        children=tuple(children),
+        children=(current_child,) if current_child is not None else (),
         relation=ExceptionRelation.ROOT,
         is_group=root.is_group,
     )

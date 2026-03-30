@@ -107,7 +107,7 @@ def test_build_tree_simple_exception() -> None:
     assert info.exception_id == "ValueError"
     assert info.break_mode == BreakMode.UNHANDLED
     assert info.tree.type_name == "ValueError"
-    assert "invalid literal" in info.tree.message
+    assert info.tree.message == "invalid literal for int() with base 10: 'abc'"
     assert len(info.tree.frames) == 2
     assert info.tree.children == ()
     assert info.tree.relation == ExceptionRelation.ROOT
@@ -180,13 +180,15 @@ def test_build_tree_mixed_chain() -> None:
     tree = info.tree
     assert tree.type_name == "RuntimeError"
     assert tree.relation == ExceptionRelation.ROOT
-    assert len(tree.children) == 2
-    # First child: ConnectionError (context — "during handling")
-    assert tree.children[0].type_name == "ConnectionError"
-    assert tree.children[0].relation == ExceptionRelation.CONTEXT
-    # Second child: IOError (cause — "direct cause")
-    assert tree.children[1].type_name == "IOError"
-    assert tree.children[1].relation == ExceptionRelation.CAUSE
+    # Properly nested: RuntimeError → IOError(cause) → ConnectionError(context)
+    assert len(tree.children) == 1
+    cause = tree.children[0]
+    assert cause.type_name == "IOError"
+    assert cause.relation == ExceptionRelation.CAUSE
+    assert len(cause.children) == 1
+    ctx = cause.children[0]
+    assert ctx.type_name == "ConnectionError"
+    assert ctx.relation == ExceptionRelation.CONTEXT
 
 
 def test_build_tree_exception_group_flat() -> None:

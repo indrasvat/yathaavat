@@ -14,6 +14,7 @@ from __future__ import annotations
 
 import asyncio
 import os
+import shlex
 import subprocess
 import time
 
@@ -90,7 +91,7 @@ async def main(connection: iterm2.Connection) -> None:
         await asyncio.sleep(0.5)
 
         # Navigate to project and launch yathaavat
-        await session.async_send_text(f"cd {PROJECT} && uv run yathaavat tui\n")
+        await session.async_send_text(f"cd {shlex.quote(PROJECT)} && uv run yathaavat tui\n")
 
         # Wait for TUI to load
         found = await _wait_for_screen_contains(session, "DISCONNECTED", timeout=12)
