@@ -28,6 +28,27 @@ class ExceptionRelation(StrEnum):
     GROUP_MEMBER = "member"
 
 
+class TaskState(StrEnum):
+    PENDING = "pending"
+    DONE = "done"
+    CANCELLED = "cancelled"
+    FAILED = "failed"
+
+
+class TaskCaptureStatus(StrEnum):
+    OK = "ok"
+    EMPTY = "empty"
+    UNSUPPORTED = "unsupported"
+    UNAVAILABLE = "unavailable"
+    PARTIAL = "partial"
+    ERROR = "error"
+
+
+class TaskViewMode(StrEnum):
+    FLAT = "flat"
+    TREE = "tree"
+
+
 @dataclass(frozen=True, slots=True)
 class ThreadInfo:
     id: int
@@ -96,6 +117,45 @@ class ExceptionInfo:
 
 
 @dataclass(frozen=True, slots=True)
+class TaskStackFrame:
+    name: str
+    path: str | None = None
+    line: int | None = None
+
+
+@dataclass(frozen=True, slots=True)
+class TaskInfo:
+    id: str
+    name: str
+    state: TaskState
+    coroutine: str
+    path: str | None = None
+    line: int | None = None
+    stack: tuple[TaskStackFrame, ...] = ()
+    awaiting: tuple[str, ...] = ()
+    awaited_by: tuple[str, ...] = ()
+    exception: str | None = None
+    done: bool = False
+    cancelled: bool = False
+
+
+@dataclass(frozen=True, slots=True)
+class TaskNode:
+    task_id: str
+    children: tuple[TaskNode, ...] = ()
+    cycle_to: str | None = None
+
+
+@dataclass(frozen=True, slots=True)
+class TaskGraphInfo:
+    tasks: tuple[TaskInfo, ...] = ()
+    roots: tuple[TaskNode, ...] = ()
+    status: TaskCaptureStatus = TaskCaptureStatus.EMPTY
+    message: str | None = None
+    cycles: tuple[tuple[str, ...], ...] = ()
+
+
+@dataclass(frozen=True, slots=True)
 class CompletionItem:
     label: str
     insert_text: str
@@ -124,6 +184,9 @@ class SessionSnapshot:
     watches: tuple[WatchInfo, ...] = ()
     breakpoints: tuple[BreakpointInfo, ...] = ()
     transcript: tuple[str, ...] = ()
+    task_graph: TaskGraphInfo | None = None
+    selected_task_id: str | None = None
+    task_view_mode: TaskViewMode = TaskViewMode.FLAT
 
 
 SessionListener = Callable[[SessionSnapshot], None]
@@ -242,6 +305,13 @@ class ExceptionInfoManager(SessionManager, Protocol):
 @runtime_checkable
 class CompletionsManager(SessionManager, Protocol):
     async def complete(self, text: str, *, cursor: int) -> tuple[CompletionItem, ...]: ...
+
+
+@runtime_checkable
+class TaskIntrospectionManager(SessionManager, Protocol):
+    async def refresh_tasks(self) -> None: ...
+
+    async def select_task(self, task_id: str) -> None: ...
 
 
 SESSION_STORE: ServiceKey[SessionStore] = ServiceKey("session.store")

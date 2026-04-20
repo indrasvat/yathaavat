@@ -51,6 +51,7 @@ Inside the TUI, press `Ctrl+R` and type `examples/demo_target.py` to launch a de
 - **Source navigation** — inline Find (`Ctrl+F`), Go to line (`Ctrl+G`), Jump to execution (`Ctrl+E`), Run to cursor (`Enter`)
 - **Exception panel** — structured traceback tree on exception stops, chained exceptions with `↳ caused by:` / `↳ during handling:` labels, ExceptionGroup support, jump to frame (`Enter`), copy traceback (`y`), add breakpoint at raise site (`a`)
 - **Inspection** — expandable locals tree, watch expressions with change tracking, expression console with DAP tab-completion
+- **Asyncio tasks panel** — live task snapshot at every stop (id · name · state · coroutine · location · awaiting), flat table or tree (await graph) view, cycle detection, jump to the task's suspended frame with `Enter`
 - **Tri-pane layout** — Stack + Breakpoints | Source | Locals + Watches + Exception, with Console and Transcript below
 - **Command palette** — `Ctrl+P` for fuzzy search across all commands with keybinding hints
 - **Gutter markers** — `●` verified, `◌` pending, `✗` failed, `▶` execution line

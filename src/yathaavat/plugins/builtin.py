@@ -14,6 +14,7 @@ from yathaavat.app.panels import (
     TranscriptPanel,
 )
 from yathaavat.app.source_nav import GotoDialog
+from yathaavat.app.tasks import TasksPanel
 from yathaavat.app.threads import ThreadsPanel
 from yathaavat.app.watches import AddWatchDialog, WatchesPanel
 from yathaavat.core import (
@@ -28,6 +29,8 @@ from yathaavat.core import (
     SessionSnapshot,
     SessionState,
     Slot,
+    TaskIntrospectionManager,
+    TaskViewMode,
     WidgetContribution,
 )
 
@@ -346,6 +349,49 @@ class BuiltinPlugin(Plugin):
                 handler=_toggle_breakpoint,
             )
         )
+
+        async def _refresh_tasks() -> None:
+            session = _session(ctx)
+            if session is None or not isinstance(session, TaskIntrospectionManager):
+                host.notify("Task capture unavailable on this backend.", timeout=2.0)
+                return
+            try:
+                await session.refresh_tasks()
+            except Exception as exc:
+                host.notify(str(exc), timeout=2.5)
+
+        def _toggle_task_mode() -> None:
+            store = ctx.services.get(SESSION_STORE)
+            snap = store.snapshot()
+            new_mode = (
+                TaskViewMode.TREE if snap.task_view_mode is TaskViewMode.FLAT else TaskViewMode.FLAT
+            )
+            store.update(task_view_mode=new_mode)
+
+        ctx.commands.register(
+            Command(
+                CommandSpec(
+                    id="tasks.refresh",
+                    title="Refresh Tasks",
+                    summary="Re-capture live asyncio tasks from the target.",
+                    default_keys=(),
+                ),
+                handler=_refresh_tasks,
+            )
+        )
+
+        ctx.commands.register(
+            Command(
+                CommandSpec(
+                    id="tasks.toggle_mode",
+                    title="Toggle Tasks View",
+                    summary="Switch the Tasks panel between flat and tree (await graph) view.",
+                    default_keys=(),
+                ),
+                handler=_toggle_task_mode,
+            )
+        )
+
         ctx.commands.register(
             Command(
                 CommandSpec(
@@ -372,6 +418,14 @@ class BuiltinPlugin(Plugin):
                 title="Threads",
                 slot=Slot.LEFT,
                 factory=lambda _ctx: ThreadsPanel(ctx=_ctx),
+            )
+        )
+        ctx.widgets.register(
+            WidgetContribution(
+                id="builtin.tasks",
+                title="Tasks",
+                slot=Slot.LEFT,
+                factory=lambda _ctx: TasksPanel(ctx=_ctx),
             )
         )
         ctx.widgets.register(

@@ -31,10 +31,19 @@ from yathaavat.core import (
     Plugin,
     SessionState,
     SessionStore,
+    TaskCaptureStatus,
+    TaskGraphInfo,
     ThreadInfo,
     UiHost,
     VariableInfo,
     WatchInfo,
+)
+from yathaavat.core.asyncio_tasks import (
+    TASK_COLLECTOR_SOURCE,
+    build_task_graph,
+    find_task,
+    parse_collector_payload,
+    task_top_location,
 )
 from yathaavat.core.dap import DapClient, DapRequestError
 from yathaavat.core.services import ServiceRegistrationError
@@ -455,6 +464,80 @@ class DebugpySessionManager(SessionManager):
         self.store.append_transcript(f">>> {expression}\n{result}")
         return result
 
+    async def refresh_tasks(self) -> None:
+        snap = self.store.snapshot()
+        if snap.state != SessionState.PAUSED:
+            self.store.update(
+                task_graph=TaskGraphInfo(
+                    status=TaskCaptureStatus.UNAVAILABLE,
+                    message="Pause the target to capture tasks.",
+                )
+            )
+            return
+
+        dap = self._dap
+        if dap is None:
+            self.store.update(
+                task_graph=TaskGraphInfo(
+                    status=TaskCaptureStatus.UNAVAILABLE,
+                    message="No active DAP connection.",
+                )
+            )
+            return
+
+        frame_id = snap.selected_frame_id
+        args: dict[str, object] = {"expression": TASK_COLLECTOR_SOURCE, "context": "repl"}
+        if isinstance(frame_id, int):
+            args["frameId"] = frame_id
+
+        try:
+            resp = await dap.request("evaluate", args, timeout_s=5.0)
+        except (DapRequestError, TimeoutError) as exc:
+            self.store.update(
+                task_graph=TaskGraphInfo(
+                    status=TaskCaptureStatus.ERROR,
+                    message=str(exc),
+                )
+            )
+            return
+
+        raw = _body(resp).get("result")
+        text = raw if isinstance(raw, str) else None
+        payload = parse_collector_payload(text)
+        # debugpy wraps string returns from evaluate in single quotes.
+        inner = payload.get("tasks")
+        if inner is None and isinstance(text, str):
+            stripped = text.strip().strip("'\"")
+            if stripped and stripped != text.strip():
+                payload = parse_collector_payload(stripped)
+        graph = build_task_graph(payload)
+        self.store.update(task_graph=graph)
+
+    async def _safe_refresh_tasks(self) -> None:
+        try:
+            await self.refresh_tasks()
+        except Exception as exc:
+            self.store.update(
+                task_graph=TaskGraphInfo(
+                    status=TaskCaptureStatus.ERROR,
+                    message=str(exc),
+                )
+            )
+
+    async def select_task(self, task_id: str) -> None:
+        snap = self.store.snapshot()
+        task = find_task(snap.task_graph, task_id)
+        if task is None:
+            self.store.update(selected_task_id=task_id)
+            return
+        path, line = task_top_location(task)
+        self.store.update(
+            selected_task_id=task_id,
+            source_path=path if path is not None else snap.source_path,
+            source_line=line if line is not None else snap.source_line,
+            source_col=1 if path is not None else snap.source_col,
+        )
+
     async def evaluate_silent(self, expression: str) -> str:
         dap = self._require_dap()
         frame_id = self.store.snapshot().selected_frame_id
@@ -817,6 +900,8 @@ class DebugpySessionManager(SessionManager):
                     stop_reason=None,
                     stop_description=None,
                     exception_info=None,
+                    task_graph=None,
+                    selected_task_id=None,
                 )
             case "stopped":
                 reason = body.get("reason")
@@ -853,6 +938,10 @@ class DebugpySessionManager(SessionManager):
                     task.add_done_callback(lambda _t: None)
                 else:
                     self.store.update(exception_info=None)
+
+                # Capture live asyncio tasks in the background; never block stopping.
+                task_refresh = asyncio.create_task(self._safe_refresh_tasks())
+                task_refresh.add_done_callback(lambda _t: None)
 
                 if self._auto_resume_pending:
                     self._auto_resume_pending = False
