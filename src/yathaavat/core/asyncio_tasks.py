@@ -34,6 +34,8 @@ from yathaavat.core.session import (
 )
 
 __all__ = [
+    "TASK_COLLECTOR_CALL",
+    "TASK_COLLECTOR_DEFINE",
     "TASK_COLLECTOR_SOURCE",
     "build_task_graph",
     "find_task",
@@ -43,10 +45,16 @@ __all__ = [
     "format_state_marker",
     "parse_collector_payload",
     "task_top_location",
+    "unwrap_evaluate_repr",
 ]
 
 
-TASK_COLLECTOR_SOURCE = r"""
+# The collector is split across two ``evaluate`` requests. debugpy compiles
+# multi-line code in ``exec`` mode which discards the final expression's
+# value, so sending the whole snippet in one call returns an empty string.
+# We first define the function (exec-mode is fine) and then call it as a
+# single expression (which compiles in ``eval`` mode and returns the JSON).
+TASK_COLLECTOR_DEFINE = r"""
 def __yathaavat_collect_async_tasks__():
     import asyncio
     import gc
@@ -170,13 +178,49 @@ def __yathaavat_collect_async_tasks__():
     except Exception:
         tb = traceback.format_exc()
         return json.dumps({"status": "error", "tasks": [], "message": tb})
-
-__yathaavat_collect_async_tasks__()
 """
 
 
+TASK_COLLECTOR_CALL = "__yathaavat_collect_async_tasks__()"
+
+# Kept for backwards compatibility and tests that exec the full snippet
+# in-process (no DAP layer involved).
+TASK_COLLECTOR_SOURCE = TASK_COLLECTOR_DEFINE + "\n" + TASK_COLLECTOR_CALL + "\n"
+
+
+def unwrap_evaluate_repr(text: str) -> str:
+    """Strip the outer quote wrapping that debugpy adds to string ``evaluate`` results.
+
+    debugpy returns the ``repr()`` of the evaluated expression's value. For a
+    string like ``{"status": "ok"}`` the result on the wire is
+    ``'{"status": "ok"}'`` (single-quoted, no inner escaping because the string
+    contains only double quotes). For strings containing single quotes it uses
+    double quotes as the outer delimiter instead. This helper removes a single
+    matching pair of outer quotes and decodes the standard Python string
+    escapes; it is a no-op for bare JSON.
+    """
+    s = text.strip()
+    if len(s) < 2:
+        return s
+    if (s[0] == s[-1]) and s[0] in ("'", '"'):
+        inner = s[1:-1]
+        # Decode standard Python string escapes (\\n, \\\", etc.) that repr adds.
+        try:
+            return inner.encode("utf-8").decode("unicode_escape")
+        except UnicodeDecodeError:
+            return inner
+    return s
+
+
 def parse_collector_payload(raw: str | bytes | None) -> dict[str, object]:
-    """Parse the collector's JSON payload, returning an error dict on failure."""
+    """Parse the collector's JSON payload, returning an error dict on failure.
+
+    Handles the two wire formats we observe from DAP ``evaluate``:
+      * A bare JSON document (when the target prints via stdout or a
+        hypothetical adapter returns the value verbatim).
+      * A ``repr()``-wrapped string — the actual format returned by debugpy
+        for ``context="repl"`` evaluations that yield a ``str`` value.
+    """
     if raw is None:
         return {"status": "unavailable", "tasks": [], "message": "no collector response"}
     if isinstance(raw, bytes):
@@ -187,13 +231,21 @@ def parse_collector_payload(raw: str | bytes | None) -> dict[str, object]:
     text = raw.strip()
     if not text:
         return {"status": "empty", "tasks": []}
-    try:
-        parsed = json.loads(text)
-    except json.JSONDecodeError as exc:
-        return {"status": "error", "tasks": [], "message": f"invalid JSON: {exc}"}
-    if not isinstance(parsed, dict):
-        return {"status": "error", "tasks": [], "message": "payload is not an object"}
-    return parsed
+    attempts = [text]
+    unwrapped = unwrap_evaluate_repr(text)
+    if unwrapped != text:
+        attempts.append(unwrapped)
+    last_err: json.JSONDecodeError | None = None
+    for attempt in attempts:
+        try:
+            parsed = json.loads(attempt)
+        except json.JSONDecodeError as exc:
+            last_err = exc
+            continue
+        if not isinstance(parsed, dict):
+            return {"status": "error", "tasks": [], "message": "payload is not an object"}
+        return parsed
+    return {"status": "error", "tasks": [], "message": f"invalid JSON: {last_err}"}
 
 
 def build_task_graph(

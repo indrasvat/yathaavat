@@ -39,7 +39,8 @@ from yathaavat.core import (
     WatchInfo,
 )
 from yathaavat.core.asyncio_tasks import (
-    TASK_COLLECTOR_SOURCE,
+    TASK_COLLECTOR_CALL,
+    TASK_COLLECTOR_DEFINE,
     build_task_graph,
     find_task,
     parse_collector_payload,
@@ -486,12 +487,24 @@ class DebugpySessionManager(SessionManager):
             return
 
         frame_id = snap.selected_frame_id
-        args: dict[str, object] = {"expression": TASK_COLLECTOR_SOURCE, "context": "repl"}
+        base_args: dict[str, object] = {}
         if isinstance(frame_id, int):
-            args["frameId"] = frame_id
+            base_args["frameId"] = frame_id
 
+        # debugpy's evaluate compiles multi-line code in ``exec`` mode which
+        # discards the final expression's value. Define the collector first,
+        # then call it as a single expression so the JSON result returns.
         try:
-            resp = await dap.request("evaluate", args, timeout_s=5.0)
+            await dap.request(
+                "evaluate",
+                {**base_args, "expression": TASK_COLLECTOR_DEFINE, "context": "repl"},
+                timeout_s=5.0,
+            )
+            resp = await dap.request(
+                "evaluate",
+                {**base_args, "expression": TASK_COLLECTOR_CALL, "context": "repl"},
+                timeout_s=5.0,
+            )
         except (DapRequestError, TimeoutError) as exc:
             self.store.update(
                 task_graph=TaskGraphInfo(
@@ -504,12 +517,6 @@ class DebugpySessionManager(SessionManager):
         raw = _body(resp).get("result")
         text = raw if isinstance(raw, str) else None
         payload = parse_collector_payload(text)
-        # debugpy wraps string returns from evaluate in single quotes.
-        inner = payload.get("tasks")
-        if inner is None and isinstance(text, str):
-            stripped = text.strip().strip("'\"")
-            if stripped and stripped != text.strip():
-                payload = parse_collector_payload(stripped)
         graph = build_task_graph(payload)
         self.store.update(task_graph=graph)
 

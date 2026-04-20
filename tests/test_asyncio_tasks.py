@@ -3,6 +3,9 @@ from __future__ import annotations
 import json
 
 from yathaavat.core.asyncio_tasks import (
+    TASK_COLLECTOR_CALL,
+    TASK_COLLECTOR_DEFINE,
+    TASK_COLLECTOR_SOURCE,
     build_task_graph,
     find_task,
     format_awaiting_summary,
@@ -11,6 +14,7 @@ from yathaavat.core.asyncio_tasks import (
     format_state_marker,
     parse_collector_payload,
     task_top_location,
+    unwrap_evaluate_repr,
 )
 from yathaavat.core.session import (
     TaskCaptureStatus,
@@ -334,3 +338,79 @@ def test_format_awaiting_summary_uses_child_names_and_truncates() -> None:
     short = format_awaiting_summary(parent, graph, max_len=6)
     assert short.endswith("…")
     assert len(short) == 6
+
+
+def test_unwrap_evaluate_repr_strips_single_quote_wrapping() -> None:
+    # debugpy's repr for a JSON string that contains only double quotes uses
+    # single quotes as the outer delimiter and does NOT escape the internals.
+    wrapped = '\'{"status": "ok", "tasks": []}\''
+    assert unwrap_evaluate_repr(wrapped) == '{"status": "ok", "tasks": []}'
+
+
+def test_unwrap_evaluate_repr_strips_double_quote_wrapping_with_escapes() -> None:
+    # When the value contains a single quote, repr picks double quotes and
+    # escapes any internal double quotes.
+    wrapped = '"{\\"status\\": \\"ok\\", \\"msg\\": \\"it\'s fine\\"}"'
+    assert unwrap_evaluate_repr(wrapped) == '{"status": "ok", "msg": "it\'s fine"}'
+
+
+def test_unwrap_evaluate_repr_noop_on_bare_json() -> None:
+    bare = '{"status": "ok", "tasks": []}'
+    assert unwrap_evaluate_repr(bare) == bare
+
+
+def test_unwrap_evaluate_repr_handles_short_input() -> None:
+    assert unwrap_evaluate_repr("") == ""
+    assert unwrap_evaluate_repr("'") == "'"
+    assert unwrap_evaluate_repr("''") == ""
+
+
+def test_parse_collector_payload_handles_debugpy_repr_wrapping() -> None:
+    wrapped = '\'{"status": "ok", "tasks": [], "python": "3.14.4"}\''
+    payload = parse_collector_payload(wrapped)
+    assert payload["status"] == "ok"
+    assert payload["tasks"] == []
+    assert payload["python"] == "3.14.4"
+
+
+def test_task_collector_define_has_no_trailing_call() -> None:
+    # The define block may mention the function via `def name():` but must
+    # NOT end with a bare `name()` statement — debugpy's exec-mode evaluate
+    # would otherwise discard the return value, yielding an empty result.
+    assert TASK_COLLECTOR_CALL == "__yathaavat_collect_async_tasks__()"
+    tail_lines = [
+        line
+        for line in TASK_COLLECTOR_DEFINE.splitlines()
+        if line.strip() and not line.startswith((" ", "\t"))
+    ]
+    # Every top-level line in the define block should begin with `def ` — no
+    # bare call statements at module/top scope.
+    for line in tail_lines:
+        assert line.startswith("def "), f"unexpected top-level stmt in define block: {line!r}"
+
+
+def test_task_collector_source_is_define_plus_call() -> None:
+    assert TASK_COLLECTOR_DEFINE in TASK_COLLECTOR_SOURCE
+    assert TASK_COLLECTOR_CALL in TASK_COLLECTOR_SOURCE
+
+
+def test_task_collector_runs_in_process_and_returns_json() -> None:
+    # Running the full TASK_COLLECTOR_SOURCE in a fresh namespace exercises the
+    # define + call as a unit without the DAP layer. It must produce a JSON
+    # string that parses into the expected schema.
+    ns: dict[str, object] = {}
+    result = eval(
+        compile(TASK_COLLECTOR_SOURCE, "<collector>", "exec"),
+        ns,
+        ns,
+    )
+    # exec-mode compile returns None; the function is now defined in ns and we
+    # can call it explicitly to get the JSON payload.
+    assert result is None
+    fn = ns["__yathaavat_collect_async_tasks__"]
+    assert callable(fn)
+    text = fn()
+    assert isinstance(text, str)
+    parsed = json.loads(text)
+    assert parsed["status"] in ("ok", "empty")
+    assert isinstance(parsed["tasks"], list)
