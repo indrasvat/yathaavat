@@ -881,6 +881,8 @@ class DebugpySessionManager(SessionManager):
             locals=(),
             watches=reset_watches,
             breakpoints=queued_breakpoints,
+            task_graph=None,
+            selected_task_id=None,
         )
 
     async def _on_disconnect(self, exc: BaseException) -> None:
