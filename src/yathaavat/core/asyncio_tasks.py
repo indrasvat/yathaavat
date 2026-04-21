@@ -126,7 +126,16 @@ def __yathaavat_collect_async_tasks__():
         awaited_by = {id(t): [] for t in tasks}
         for t in tasks:
             stack = _stack(t)
-            top = stack[0] if stack else {"name": "", "path": None, "line": None}
+            state_label = _state(t)
+            # Task.get_stack() returns frames oldest->newest. For a failed
+            # task the stack is the traceback chain, so the exception site is
+            # the last frame. For pending tasks the stack is the suspended
+            # coroutine frame; stack[0] and stack[-1] coincide in practice but
+            # we prefer the newest frame as a defensive default.
+            if stack:
+                top = stack[-1] if state_label == "failed" else stack[0]
+            else:
+                top = {"name": "", "path": None, "line": None}
             coro = _safe(t.get_coro, None)
             graph = _await_graph(t)
             awaiting_ids = []
@@ -151,7 +160,7 @@ def __yathaavat_collect_async_tasks__():
             out.append({
                 "id": tid_hex,
                 "name": _safe(t.get_name, "") or "",
-                "state": _state(t),
+                "state": state_label,
                 "coroutine": _coro_label(coro),
                 "path": top.get("path"),
                 "line": top.get("line"),

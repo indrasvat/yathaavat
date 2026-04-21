@@ -414,3 +414,47 @@ def test_task_collector_runs_in_process_and_returns_json() -> None:
     parsed = json.loads(text)
     assert parsed["status"] in ("ok", "empty")
     assert isinstance(parsed["tasks"], list)
+
+
+def test_task_collector_failed_task_location_points_at_exception_site() -> None:
+    # Task.get_stack() returns oldest->newest traceback frames for failed tasks,
+    # so the exception site is at stack[-1]. The collector must pick that frame
+    # for the task's path/line to avoid jumping to the caller instead of the
+    # raise site.
+    import asyncio
+
+    async def _inner_raises() -> None:  # line reported for the failure
+        raise RuntimeError("boom")
+
+    async def _outer() -> None:
+        await _inner_raises()
+
+    async def _run() -> str:
+        task = asyncio.create_task(_outer(), name="failing")
+        try:
+            await task
+        except RuntimeError:
+            pass
+        assert task.done()
+        ns: dict[str, object] = {}
+        exec(compile(TASK_COLLECTOR_SOURCE, "<collector>", "exec"), ns, ns)
+        fn = ns["__yathaavat_collect_async_tasks__"]
+        assert callable(fn)
+        out = fn()
+        assert isinstance(out, str)
+        return out
+
+    text = asyncio.run(_run())
+    parsed = json.loads(text)
+    assert parsed["status"] == "ok"
+    failing = next((t for t in parsed["tasks"] if t.get("name") == "failing"), None)
+    assert failing is not None, f"expected failing task in payload: {parsed}"
+    assert failing["state"] == "failed"
+    # stack is oldest->newest; the exception is raised in _inner_raises so the
+    # newest frame must be selected for path/line.
+    stack = failing["stack"]
+    assert stack, "failed task should have a non-empty traceback stack"
+    newest = stack[-1]
+    assert newest["name"] == "_inner_raises"
+    assert failing["path"] == newest["path"]
+    assert failing["line"] == newest["line"]
