@@ -31,10 +31,20 @@ from yathaavat.core import (
     Plugin,
     SessionState,
     SessionStore,
+    TaskCaptureStatus,
+    TaskGraphInfo,
     ThreadInfo,
     UiHost,
     VariableInfo,
     WatchInfo,
+)
+from yathaavat.core.asyncio_tasks import (
+    TASK_COLLECTOR_CALL,
+    TASK_COLLECTOR_DEFINE,
+    build_task_graph,
+    find_task,
+    parse_collector_payload,
+    task_top_location,
 )
 from yathaavat.core.dap import DapClient, DapRequestError
 from yathaavat.core.services import ServiceRegistrationError
@@ -455,6 +465,106 @@ class DebugpySessionManager(SessionManager):
         self.store.append_transcript(f">>> {expression}\n{result}")
         return result
 
+    async def refresh_tasks(self) -> None:
+        snap = self.store.snapshot()
+        if snap.state != SessionState.PAUSED:
+            self.store.update(
+                task_graph=TaskGraphInfo(
+                    status=TaskCaptureStatus.UNAVAILABLE,
+                    message="Pause the target to capture tasks.",
+                )
+            )
+            return
+
+        dap = self._dap
+        if dap is None:
+            self.store.update(
+                task_graph=TaskGraphInfo(
+                    status=TaskCaptureStatus.UNAVAILABLE,
+                    message="No active DAP connection.",
+                )
+            )
+            return
+
+        frame_id = snap.selected_frame_id
+        base_args: dict[str, object] = {}
+        if isinstance(frame_id, int):
+            base_args["frameId"] = frame_id
+
+        # Capture the stop identity before awaiting DAP so we can discard the
+        # result if the session continued or disconnected while we were waiting.
+        stop_identity = (snap.state, snap.selected_thread_id, id(dap))
+
+        # debugpy's evaluate compiles multi-line code in ``exec`` mode which
+        # discards the final expression's value. Define the collector first,
+        # then call it as a single expression so the JSON result returns.
+        try:
+            await dap.request(
+                "evaluate",
+                {**base_args, "expression": TASK_COLLECTOR_DEFINE, "context": "repl"},
+                timeout_s=5.0,
+            )
+            resp = await dap.request(
+                "evaluate",
+                {**base_args, "expression": TASK_COLLECTOR_CALL, "context": "repl"},
+                timeout_s=5.0,
+            )
+        except (DapRequestError, TimeoutError) as exc:
+            if not self._stop_identity_matches(stop_identity):
+                return
+            self.store.update(
+                task_graph=TaskGraphInfo(
+                    status=TaskCaptureStatus.ERROR,
+                    message=str(exc),
+                )
+            )
+            return
+
+        if not self._stop_identity_matches(stop_identity):
+            return
+
+        raw = _body(resp).get("result")
+        text = raw if isinstance(raw, str) else None
+        payload = parse_collector_payload(text)
+        graph = build_task_graph(payload)
+        self.store.update(task_graph=graph)
+
+    def _stop_identity_matches(self, identity: tuple[SessionState, int | None, int]) -> bool:
+        expected_state, expected_thread, expected_dap_id = identity
+        snap = self.store.snapshot()
+        current_dap = self._dap
+        return (
+            snap.state == expected_state
+            and snap.selected_thread_id == expected_thread
+            and current_dap is not None
+            and id(current_dap) == expected_dap_id
+        )
+
+    async def _safe_refresh_tasks(self) -> None:
+        try:
+            await self.refresh_tasks()
+        except Exception as exc:
+            self.store.update(
+                task_graph=TaskGraphInfo(
+                    status=TaskCaptureStatus.ERROR,
+                    message=str(exc),
+                )
+            )
+
+    async def select_task(self, task_id: str) -> None:
+        snap = self.store.snapshot()
+        task = find_task(snap.task_graph, task_id)
+        if task is None:
+            self.store.update(selected_task_id=task_id)
+            return
+        path, line = task_top_location(task)
+        self.store.update(
+            selected_task_id=task_id,
+            source_path=path if path is not None else snap.source_path,
+            source_line=line if line is not None else snap.source_line,
+            source_col=1 if path is not None else snap.source_col,
+        )
+
     async def evaluate_silent(self, expression: str) -> str:
         dap = self._require_dap()
         frame_id = self.store.snapshot().selected_frame_id
@@ -791,6 +901,8 @@ class DebugpySessionManager(SessionManager):
             locals=(),
             watches=reset_watches,
             breakpoints=queued_breakpoints,
+            task_graph=None,
+            selected_task_id=None,
         )
 
     async def _on_disconnect(self, exc: BaseException) -> None:
@@ -817,6 +929,8 @@ class DebugpySessionManager(SessionManager):
                     stop_reason=None,
                     stop_description=None,
                     exception_info=None,
+                    task_graph=None,
+                    selected_task_id=None,
                 )
             case "stopped":
                 reason = body.get("reason")
@@ -853,6 +967,10 @@ class DebugpySessionManager(SessionManager):
                     task.add_done_callback(lambda _t: None)
                 else:
                     self.store.update(exception_info=None)
+
+                # Capture live asyncio tasks in the background; never block stopping.
+                task_refresh = asyncio.create_task(self._safe_refresh_tasks())
+                task_refresh.add_done_callback(lambda _t: None)
 
                 if self._auto_resume_pending:
                     self._auto_resume_pending = False
