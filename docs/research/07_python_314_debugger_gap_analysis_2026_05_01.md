@@ -56,6 +56,9 @@ Kasm evidence:
 
 - `docs/research/evidence/2026-05-01/attach-picker-safe-probe.png`
 - `docs/research/evidence/2026-05-01/safe-attach-route-attempt.png`
+- `docs/research/evidence/2026-05-01/attach-existing-dap.png`
+- `docs/research/evidence/2026-05-01/attach-x-disable-safe-off.png`
+- `docs/research/evidence/2026-05-01/launch-demo-paused.png`
 
 Why this feature:
 
