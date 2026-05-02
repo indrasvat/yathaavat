@@ -43,6 +43,7 @@ __all__ = [
     "format_coroutine_label",
     "format_location",
     "format_state_marker",
+    "format_task_detail",
     "parse_collector_payload",
     "task_top_location",
     "unwrap_evaluate_repr",
@@ -565,3 +566,57 @@ def format_awaiting_summary(task: TaskInfo, graph: TaskGraphInfo, *, max_len: in
     if len(summary) <= max_len:
         return summary
     return summary[: max(1, max_len - 1)] + "…"
+
+
+def format_task_detail(task: TaskInfo, graph: TaskGraphInfo, *, max_stack: int = 5) -> str:
+    """Format a compact, terminal-friendly detail block for a selected task."""
+
+    by_id = {t.id: t for t in graph.tasks}
+    lines = [
+        f"Task: {_task_label(task)} [{task.state.value}]",
+        f"Coroutine: {task.coroutine or 'unknown'}",
+        f"Location: {format_location(task, max_len=80)}",
+        f"Awaiting: {_format_task_refs(task.awaiting, by_id)}",
+        f"Awaited by: {_format_task_refs(task.awaited_by, by_id)}",
+    ]
+    if task.exception:
+        lines.append(f"Exception: {task.exception}")
+
+    frames = task.stack[:max_stack]
+    if frames:
+        lines.append("Stack:")
+        for frame in frames:
+            lines.append(f"  {_format_stack_frame(frame)}")
+        remaining = len(task.stack) - len(frames)
+        if remaining > 0:
+            lines.append(f"  ... {remaining} more frame(s)")
+    else:
+        lines.append("Stack: unavailable")
+    return "\n".join(lines)
+
+
+def _task_label(task: TaskInfo) -> str:
+    label = task.name or task.id
+    if task.name and task.id:
+        return f"{label} ({task.id})"
+    return label
+
+
+def _format_task_refs(ids: tuple[str, ...], by_id: dict[str, TaskInfo]) -> str:
+    if not ids:
+        return "none"
+    labels: list[str] = []
+    for tid in ids:
+        task = by_id.get(tid)
+        labels.append(task.name if task is not None and task.name else tid)
+    return ", ".join(labels)
+
+
+def _format_stack_frame(frame: TaskStackFrame) -> str:
+    name = frame.name or "<frame>"
+    if frame.path is None:
+        return name
+    basename = Path(frame.path).name
+    if frame.line is None:
+        return f"{name} @ {basename}"
+    return f"{name} @ {basename}:{frame.line}"
