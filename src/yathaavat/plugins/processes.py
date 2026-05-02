@@ -21,6 +21,10 @@ from yathaavat.core.services import ServiceRegistrationError
 
 _PYTHON_LIKE_RE = re.compile(r"\bpython(?:@?\d+(?:\.\d+)*)?\b", re.IGNORECASE)
 _PYTHON_VERSION_RE = re.compile(r"python(?:@)?(?P<major>\d)(?:\.(?P<minor>\d+))?", re.IGNORECASE)
+_PYTHON_INTERPRETER_NAME_RE = re.compile(
+    r"^(?:python(?:@?\d+(?:\.\d+)*)?|pythonw(?:\d+(?:\.\d+)*)?)$",
+    re.IGNORECASE,
+)
 _VERSION_OUTPUT_RE = re.compile(r"^(?P<major>\d+)\.(?P<minor>\d+)$")
 
 
@@ -100,7 +104,9 @@ def _enrich_python_process(proc: ProcessInfo) -> ProcessInfo:
     if not proc.is_python:
         return proc
 
-    version = proc.python_version_hint or _probe_python_version_hint(proc.pid)
+    version = proc.python_version_hint
+    if (version is None or version == "3") and _should_probe_python_version(proc):
+        version = _probe_python_version_hint(proc.pid) or version
     remote_debug_disabled = _remote_debug_disabled(proc.pid, proc.args)
     if version == proc.python_version_hint and remote_debug_disabled == proc.remote_debug_disabled:
         return proc
@@ -109,6 +115,12 @@ def _enrich_python_process(proc: ProcessInfo) -> ProcessInfo:
         python_version_hint=version,
         remote_debug_disabled=remote_debug_disabled,
     )
+
+
+def _should_probe_python_version(proc: ProcessInfo) -> bool:
+    argv0 = _argv0(args=proc.args, fallback=proc.command)
+    names = {Path(argv0).name, Path(proc.command).name}
+    return any(_PYTHON_INTERPRETER_NAME_RE.fullmatch(name) for name in names if name)
 
 
 def _probe_python_version_hint(pid: int) -> str | None:
@@ -161,8 +173,7 @@ def _remote_debug_disabled(pid: int, args: str) -> bool:
     for item in data.split(b"\0"):
         if not item.startswith(b"PYTHON_DISABLE_REMOTE_DEBUG="):
             continue
-        _name, _sep, value = item.partition(b"=")
-        return bool(value)
+        return True
     return False
 
 

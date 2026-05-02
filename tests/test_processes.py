@@ -11,6 +11,7 @@ from yathaavat.plugins.processes import (
     _args_disable_remote_debug,
     _enrich_python_process,
     _probe_python_version_hint,
+    _should_probe_python_version,
     parse_ps_output,
 )
 
@@ -96,6 +97,71 @@ def test_enrich_python_process_probes_plain_python_and_remote_debug_env(
 
     assert enriched.python_version_hint == "3.14"
     assert enriched.remote_debug_disabled is True
+
+
+def test_enrich_python_process_treats_empty_remote_debug_env_as_disabled(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    def fake_read_bytes(path: Path) -> bytes:
+        assert str(path) == "/proc/123/environ"
+        return b"PYTHON_DISABLE_REMOTE_DEBUG=\0"
+
+    monkeypatch.setattr(Path, "read_bytes", fake_read_bytes)
+
+    proc = ProcessInfo(
+        pid=123,
+        command="python3.14",
+        args="python3.14 -m service",
+        is_python=True,
+        python_version_hint="3.14",
+    )
+    enriched = _enrich_python_process(proc)
+
+    assert enriched.remote_debug_disabled is True
+
+
+def test_enrich_python_process_does_not_execute_python_named_worker(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    def fake_exists(path: Path) -> bool:
+        return str(path) == "/proc/124/exe"
+
+    def fake_read_bytes(_path: Path) -> bytes:
+        raise OSError
+
+    def fake_run(_cmd: list[str], **_kwargs: Any) -> object:
+        raise AssertionError("should not execute python-worker")
+
+    monkeypatch.setattr(Path, "exists", fake_exists)
+    monkeypatch.setattr(Path, "read_bytes", fake_read_bytes)
+    monkeypatch.setattr(subprocess, "run", fake_run)
+
+    proc = ProcessInfo(
+        pid=124,
+        command="python-worker",
+        args="/usr/local/bin/python-worker --serve",
+        is_python=True,
+    )
+    enriched = _enrich_python_process(proc)
+
+    assert enriched.python_version_hint is None
+
+
+def test_should_probe_python_version_accepts_interpreter_names() -> None:
+    assert _should_probe_python_version(
+        ProcessInfo(pid=1, command="python", args="/venv/bin/python -m app", is_python=True)
+    )
+    assert _should_probe_python_version(
+        ProcessInfo(pid=2, command="python3", args="python3 -m app", is_python=True)
+    )
+    assert not _should_probe_python_version(
+        ProcessInfo(
+            pid=3,
+            command="python-worker",
+            args="/usr/local/bin/python-worker --serve",
+            is_python=True,
+        )
+    )
 
 
 def test_args_disable_remote_debug_detects_python_x_option() -> None:
