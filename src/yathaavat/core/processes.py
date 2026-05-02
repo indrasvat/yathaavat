@@ -13,6 +13,7 @@ class ProcessInfo:
     args: str
     is_python: bool
     python_version_hint: str | None = None
+    remote_debug_disabled: bool = False
 
 
 @runtime_checkable
