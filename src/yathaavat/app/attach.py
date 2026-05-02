@@ -30,6 +30,7 @@ class _Row:
     dap_endpoint: tuple[str, int] | None = None
     safe_attach_candidate: bool = False
     safe_attach_enabled: bool = False
+    safe_attach_blocked_reason: str | None = None
 
 
 class AttachPicker(ModalScreen[None]):
@@ -82,6 +83,7 @@ class AttachPicker(ModalScreen[None]):
             dap_endpoint=chosen.dap_endpoint,
             safe_attach_candidate=chosen.safe_attach_candidate,
             safe_attach_enabled=chosen.safe_attach_enabled,
+            safe_attach_blocked_reason=chosen.safe_attach_blocked_reason,
         )
 
     @on(ListView.Selected, "#attach_list")
@@ -93,11 +95,15 @@ class AttachPicker(ModalScreen[None]):
         dap_endpoint = getattr(item, "dap_endpoint", None)
         safe_attach_candidate = bool(getattr(item, "safe_attach_candidate", False))
         safe_attach_enabled = bool(getattr(item, "safe_attach_enabled", False))
+        safe_attach_blocked_reason = getattr(item, "safe_attach_blocked_reason", None)
         self._start_attach(
             pid=pid,
             dap_endpoint=dap_endpoint if isinstance(dap_endpoint, tuple) else None,
             safe_attach_candidate=safe_attach_candidate,
             safe_attach_enabled=safe_attach_enabled,
+            safe_attach_blocked_reason=safe_attach_blocked_reason
+            if isinstance(safe_attach_blocked_reason, str)
+            else None,
         )
 
     def _start_attach(
@@ -107,6 +113,7 @@ class AttachPicker(ModalScreen[None]):
         dap_endpoint: tuple[str, int] | None,
         safe_attach_candidate: bool,
         safe_attach_enabled: bool,
+        safe_attach_blocked_reason: str | None,
     ) -> None:
         manager: SessionManager | None
         try:
@@ -146,9 +153,11 @@ class AttachPicker(ModalScreen[None]):
                     await safe_manager.safe_attach(pid)
                 else:
                     if safe_manager is not None and safe_attach_candidate:
+                        reason = safe_attach_blocked_reason or (
+                            "requires elevated privileges on this platform"
+                        )
                         self._ctx.host.notify(
-                            "Safe attach requires elevated privileges on this platform; "
-                            "falling back to debugpy --pid.",
+                            f"Safe attach {reason}; falling back to debugpy --pid.",
                             timeout=3.0,
                         )
                     self._ctx.host.notify(f"Attaching to PID {pid}…", timeout=2.0)
@@ -202,7 +211,12 @@ class AttachPicker(ModalScreen[None]):
             is_adapter = adapter_endpoint is not None
             dap_endpoint = _debugpy_dap_endpoint(proc.args) or adapter_endpoint
             safe_attach_candidate = proc.python_version_hint == "3.14" and not is_adapter
-            safe_attach_enabled = safe_attach_candidate and _safe_attach_enabled()
+            safe_attach_blocked_reason: str | None = None
+            if safe_attach_candidate and proc.remote_debug_disabled:
+                safe_attach_blocked_reason = "disabled by target"
+            elif safe_attach_candidate:
+                safe_attach_blocked_reason = _safe_attach_unavailable_reason()
+            safe_attach_enabled = safe_attach_candidate and safe_attach_blocked_reason is None
             py = f"  py{proc.python_version_hint or ''}".rstrip() if proc.is_python else ""
             name = "debugpy.adapter" if is_adapter else proc.command
             label = f"{proc.pid:>6}  {name}{py}"
@@ -210,7 +224,7 @@ class AttachPicker(ModalScreen[None]):
                 host, port = dap_endpoint
                 label = f"{label}  dap {host}:{port}"
             elif safe_attach_candidate:
-                label = f"{label}  safe" if safe_attach_enabled else f"{label}  safe (sudo)"
+                label = f"{label}  safe" if safe_attach_enabled else f"{label}  safe off"
             detail = proc.args
             if q and q not in label.lower() and q not in detail.lower():
                 continue
@@ -222,6 +236,7 @@ class AttachPicker(ModalScreen[None]):
                     dap_endpoint=dap_endpoint,
                     safe_attach_candidate=safe_attach_candidate,
                     safe_attach_enabled=safe_attach_enabled,
+                    safe_attach_blocked_reason=safe_attach_blocked_reason,
                 )
             )
         out.sort(key=lambda r: r.pid)
@@ -249,6 +264,7 @@ class AttachPicker(ModalScreen[None]):
             li.dap_endpoint = row.dap_endpoint  # type: ignore[attr-defined]
             li.safe_attach_candidate = row.safe_attach_candidate  # type: ignore[attr-defined]
             li.safe_attach_enabled = row.safe_attach_enabled  # type: ignore[attr-defined]
+            li.safe_attach_blocked_reason = row.safe_attach_blocked_reason  # type: ignore[attr-defined]
             lv.append(li)
 
 
@@ -259,12 +275,17 @@ def _truncate(text: str, max_len: int) -> str:
     return f"{s[: max_len - 1]}…"
 
 
-def _safe_attach_enabled() -> bool:
+def _safe_attach_unavailable_reason() -> str | None:
+    if not hasattr(sys, "remote_exec"):
+        return "unsupported locally"
+    if os.environ.get("PYTHON_DISABLE_REMOTE_DEBUG"):
+        return "disabled locally"
     # On macOS, `sys.remote_exec` currently requires task port privileges (root or entitlement).
     if sys.platform == "darwin":
         geteuid = getattr(os, "geteuid", None)
-        return callable(geteuid) and geteuid() == 0
-    return True
+        if not callable(geteuid) or geteuid() != 0:
+            return "requires sudo"
+    return None
 
 
 _DEBUGPY_LISTEN_RE = re.compile(r"(?:^|\s)--listen(?:\s|$)")

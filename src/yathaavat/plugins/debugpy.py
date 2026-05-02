@@ -331,8 +331,9 @@ class DebugpySessionManager(SessionManager):
             try:
                 await asyncio.to_thread(sys.remote_exec, pid, str(script_path))
             except Exception as exc:
-                self.store.append_transcript(f"sys.remote_exec failed: {exc}")
-                raise
+                message = _remote_exec_failure_message(exc)
+                self.store.append_transcript(f"sys.remote_exec failed: {message}")
+                raise RuntimeError(message) from exc
             try:
                 await self._await_remote_exec_status(status_path, timeout_s=20.0)
                 self.store.append_transcript("Remote exec started debugpy.")
@@ -1458,6 +1459,40 @@ def _remote_exec_script(*, status_path: Path, host: str, port: int) -> str:
         "except Exception as exc:\n"
         "    _write('error', error=str(exc), traceback=traceback.format_exc())\n"
     )
+
+
+def _remote_exec_failure_message(exc: BaseException) -> str:
+    raw = str(exc).strip() or exc.__class__.__name__
+    if _is_pyruntime_lookup_failure(exc):
+        if sys.platform.startswith("linux"):
+            return (
+                f"{raw}\n"
+                "Python 3.14 safe attach could not read the target process memory to find "
+                "CPython's PyRuntime debug-offset section. On Linux this usually means the "
+                "ptrace policy blocked the attach. Run yathaavat with CAP_SYS_PTRACE, start "
+                "the container with --cap-add=SYS_PTRACE and an unconfined seccomp profile, "
+                "or relax kernel.yama.ptrace_scope for this dev host."
+            )
+        return (
+            f"{raw}\n"
+            "Python 3.14 safe attach could not read the target process memory to find "
+            "CPython's PyRuntime debug-offset section. Check OS debugger permissions for "
+            "this platform."
+        )
+    return raw
+
+
+def _is_pyruntime_lookup_failure(exc: BaseException) -> bool:
+    current: BaseException | None = exc
+    while current is not None:
+        text = str(current)
+        if (
+            "PyRuntime address lookup failed during debug offsets initialization" in text
+            or "Failed to find the PyRuntime section" in text
+        ):
+            return True
+        current = current.__cause__
+    return False
 
 
 def _is_user_path(path: str) -> bool:

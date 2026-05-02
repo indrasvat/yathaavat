@@ -14,6 +14,7 @@ from yathaavat.core import NullUiHost, SessionStore
 from yathaavat.plugins.debugpy import (
     DebugpySessionManager,
     _prepare_remote_exec_handoff,
+    _remote_exec_failure_message,
     _remote_exec_script,
 )
 
@@ -47,6 +48,17 @@ def test_await_remote_exec_status_listening_returns() -> None:
 
     with tempfile.TemporaryDirectory() as td:
         asyncio.run(main(Path(td)))
+
+
+def test_remote_exec_failure_message_explains_pyruntime_lookup_failure() -> None:
+    raw = RuntimeError("PyRuntime address lookup failed during debug offsets initialization")
+
+    message = _remote_exec_failure_message(raw)
+
+    assert "PyRuntime address lookup failed" in message
+    assert "ptrace policy blocked the attach" in message
+    assert "CAP_SYS_PTRACE" in message
+    assert "kernel.yama.ptrace_scope" in message
 
 
 def test_pid_attach_timeout_adds_transcript(monkeypatch: pytest.MonkeyPatch) -> None:

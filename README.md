@@ -46,7 +46,7 @@ Inside the TUI, press `Ctrl+R` and type `examples/demo_target.py` to launch a de
 
 ## Features
 
-- **Three debug workflows** — Launch a script (`Ctrl+R`), connect to a debugpy server (`Ctrl+K`), or attach to a running process by PID (`Ctrl+A`) — all with fuzzy file/server discovery, MRU history, and `~` path expansion
+- **Three debug workflows** — Launch a script (`Ctrl+R`), connect to a debugpy server (`Ctrl+K`), or attach to a running process by PID (`Ctrl+A`) — all with fuzzy discovery, MRU history, and `~` path expansion. The attach picker detects existing debugpy DAP endpoints and Python 3.14 safe-attach candidates, including remote-debug policy blocks.
 - **Breakpoints** — toggle at cursor, add by `file:line` with conditions / hit counts / logpoints, queued while disconnected and auto-applied on connect
 - **Source navigation** — inline Find (`Ctrl+F`), Go to line (`Ctrl+G`), Jump to execution (`Ctrl+E`), Run to cursor (`Enter`)
 - **Exception panel** — structured traceback tree on exception stops, chained exceptions with `↳ caused by:` / `↳ during handling:` labels, ExceptionGroup support, jump to frame (`Enter`), copy traceback (`y`), add breakpoint at raise site (`a`)
@@ -111,7 +111,8 @@ curl http://127.0.0.1:8000/debug/break
 # Terminal A — plain stdlib HTTP server, zero debugpy imports
 make vanilla-service
 
-# Terminal B — attach by PID (sudo required on macOS)
+# Terminal B — attach by PID. Python 3.14 targets use safe attach when available;
+# the picker falls back or shows policy/permission guidance when it is blocked.
 sudo yathaavat             # Ctrl+A → select vanilla_service.py → Enter
 ```
 
