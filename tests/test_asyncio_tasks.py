@@ -12,6 +12,7 @@ from yathaavat.core.asyncio_tasks import (
     format_coroutine_label,
     format_location,
     format_state_marker,
+    format_task_detail,
     parse_collector_payload,
     task_top_location,
     unwrap_evaluate_repr,
@@ -338,6 +339,68 @@ def test_format_awaiting_summary_uses_child_names_and_truncates() -> None:
     short = format_awaiting_summary(parent, graph, max_len=6)
     assert short.endswith("…")
     assert len(short) == 6
+
+
+def test_format_task_detail_includes_relationships_and_stack() -> None:
+    payload = _payload(
+        tasks=[
+            _task_entry(
+                "0xp",
+                name="parent",
+                coroutine="run_parent",
+                path="/app/parent.py",
+                line=10,
+                awaiting=["0xc"],
+                stack=[
+                    {"name": "main", "path": "/app/main.py", "line": 3},
+                    {"name": "run_parent", "path": "/app/parent.py", "line": 10},
+                ],
+            ),
+            _task_entry("0xc", name="child", awaited_by=["0xp"]),
+        ]
+    )
+    graph = build_task_graph(payload)
+    parent = next(t for t in graph.tasks if t.id == "0xp")
+
+    detail = format_task_detail(parent, graph)
+
+    assert "Task: parent (0xp) [pending]" in detail
+    assert "Coroutine: run_parent" in detail
+    assert "Location: parent.py:10" in detail
+    assert "Awaiting: child" in detail
+    assert "Awaited by: none" in detail
+    assert "main @ main.py:3" in detail
+    assert "run_parent @ parent.py:10" in detail
+
+
+def test_format_task_detail_shows_failed_exception_and_stack_limit() -> None:
+    payload = _payload(
+        tasks=[
+            _task_entry(
+                "0xf",
+                name="failed",
+                state="failed",
+                exception="RuntimeError: boom",
+                done=True,
+                stack=[
+                    {"name": "a", "path": "/app/a.py", "line": 1},
+                    {"name": "b", "path": "/app/b.py", "line": 2},
+                    {"name": "c", "path": "/app/c.py", "line": 3},
+                ],
+            ),
+        ]
+    )
+    graph = build_task_graph(payload)
+    task = graph.tasks[0]
+
+    detail = format_task_detail(task, graph, max_stack=2)
+
+    assert "Task: failed (0xf) [failed]" in detail
+    assert "Exception: RuntimeError: boom" in detail
+    assert "a @ a.py:1" in detail
+    assert "b @ b.py:2" in detail
+    assert "c @ c.py:3" not in detail
+    assert "... 1 more frame(s)" in detail
 
 
 def test_unwrap_evaluate_repr_strips_single_quote_wrapping() -> None:

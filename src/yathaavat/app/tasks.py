@@ -38,10 +38,12 @@ from yathaavat.core import (
     TaskViewMode,
 )
 from yathaavat.core.asyncio_tasks import (
+    find_task,
     format_awaiting_summary,
     format_coroutine_label,
     format_location,
     format_state_marker,
+    format_task_detail,
     task_top_location,
 )
 
@@ -251,6 +253,12 @@ class TasksPanel(Container):
     TasksPanel > Tree {
         height: 1fr;
     }
+    TasksPanel > #tasks_detail {
+        height: 8;
+        padding: 0 1;
+        background: $surface;
+        color: $text;
+    }
     """
 
     def __init__(self, *, ctx: AppContext) -> None:
@@ -263,6 +271,7 @@ class TasksPanel(Container):
         self._table = _TasksTable(panel=self)
         self._tree = _TasksTree(panel=self)
         self._empty = Static("", id="tasks_empty")
+        self._detail = Static("", id="tasks_detail", markup=False)
         self._mode: TaskViewMode = TaskViewMode.FLAT
 
     def compose(self) -> ComposeResult:
@@ -270,6 +279,7 @@ class TasksPanel(Container):
         yield self._empty
         yield self._table
         yield self._tree
+        yield self._detail
 
     def on_mount(self) -> None:
         self._unsubscribe = self._store.subscribe(self._on_snapshot)
@@ -313,6 +323,7 @@ class TasksPanel(Container):
         has_tasks = graph is not None and bool(graph.tasks)
         show_empty = not has_tasks
         self._empty.display = show_empty
+        self._detail.display = not show_empty
         if self._mode is TaskViewMode.FLAT:
             self._table.display = not show_empty
             self._tree.display = False
@@ -322,12 +333,16 @@ class TasksPanel(Container):
 
         if show_empty:
             self._empty.update(self._empty_label(graph))
+            self._detail.update("")
             return
 
+        assert graph is not None
         self._table.set_tasks(graph)
         self._tree.set_graph(graph)
         self._table.focus_task(snapshot.selected_task_id)
         self._tree.focus_task(snapshot.selected_task_id)
+        selected = find_task(graph, snapshot.selected_task_id) or graph.tasks[0]
+        self._detail.update(format_task_detail(selected, graph))
 
     def _empty_label(self, graph: TaskGraphInfo | None) -> str:
         if graph is None:

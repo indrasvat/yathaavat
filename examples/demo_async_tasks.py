@@ -66,6 +66,7 @@ async def hit_breakpoint(depth: int) -> int:
     if depth <= 0:
         # This is the line we want the debugger to pause on so that
         # the Tasks panel can snapshot the full live task graph.
+        debugpy.breakpoint()
         here = sys._getframe().f_lineno
         return here
     return await hit_breakpoint(depth - 1)
