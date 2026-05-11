@@ -271,7 +271,7 @@ class TasksPanel(Container):
         self._table = _TasksTable(panel=self)
         self._tree = _TasksTree(panel=self)
         self._empty = Static("", id="tasks_empty")
-        self._detail = Static("", id="tasks_detail")
+        self._detail = Static("", id="tasks_detail", markup=False)
         self._mode: TaskViewMode = TaskViewMode.FLAT
 
     def compose(self) -> ComposeResult:
