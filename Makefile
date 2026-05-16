@@ -69,6 +69,14 @@ iterm2-installer: ## Drive install.sh in iTerm2 + capture screenshots
 test: ## Run tests (pytest)
 	@uv run --python $(PYTHON) pytest
 
+.PHONY: coverage
+coverage: ## Run tests with branch coverage and XML report
+	@uv run --python $(PYTHON) pytest --cov=$(PROJECT) --cov-report=term-missing:skip-covered --cov-report=xml:coverage.xml
+
+.PHONY: coverage-html
+coverage-html: ## Run tests with coverage and build htmlcov/
+	@uv run --python $(PYTHON) pytest --cov=$(PROJECT) --cov-report=term-missing:skip-covered --cov-report=xml:coverage.xml --cov-report=html:htmlcov
+
 .PHONY: lint
 lint: ## Lint (ruff)
 	@uv run --python $(PYTHON) ruff check

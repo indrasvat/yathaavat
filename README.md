@@ -12,6 +12,10 @@
 </p>
 
 <p align="center">
+  <a href="https://app.codecov.io/gh/indrasvat/yathaavat"><img alt="Coverage" src="https://img.shields.io/codecov/c/github/indrasvat/yathaavat?branch=main&label=coverage&logo=codecov&style=for-the-badge"></a>
+</p>
+
+<p align="center">
   <a href="#install">Install</a> ·
   <a href="#quickstart">Quickstart</a> ·
   <a href="#features">Features</a> ·
@@ -130,6 +134,7 @@ curl http://127.0.0.1:8000/debug/break
 make sync          # install deps + git hooks (requires uv + python3.14)
 make run           # launch TUI
 make test          # pytest
+make coverage      # pytest + branch coverage + coverage.xml
 make ci            # format + lint + typecheck + test + shellcheck
 make release V=x.y.z  # tag + push → GitHub Actions builds + releases
 make help          # list all targets
