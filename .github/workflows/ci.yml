@@ -38,7 +38,7 @@ jobs:
 
       - name: Test with coverage
         run: |
-          uv run --python python3.14 pytest --cov=yathaavat --cov-report=term-missing:skip-covered --cov-report=xml:coverage.xml
+          uv run --python python3.14 pytest --cov=src/yathaavat --cov-report=term-missing:skip-covered --cov-report=xml:coverage.xml
           {
             echo "## Coverage"
             echo

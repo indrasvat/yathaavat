@@ -71,11 +71,11 @@ test: ## Run tests (pytest)
 
 .PHONY: coverage
 coverage: ## Run tests with branch coverage and XML report
-	@uv run --python $(PYTHON) pytest --cov=$(PROJECT) --cov-report=term-missing:skip-covered --cov-report=xml:coverage.xml
+	@uv run --python $(PYTHON) pytest --cov=src/$(PROJECT) --cov-report=term-missing:skip-covered --cov-report=xml:coverage.xml
 
 .PHONY: coverage-html
 coverage-html: ## Run tests with coverage and build htmlcov/
-	@uv run --python $(PYTHON) pytest --cov=$(PROJECT) --cov-report=term-missing:skip-covered --cov-report=xml:coverage.xml --cov-report=html:htmlcov
+	@uv run --python $(PYTHON) pytest --cov=src/$(PROJECT) --cov-report=term-missing:skip-covered --cov-report=xml:coverage.xml --cov-report=html:htmlcov
 
 .PHONY: lint
 lint: ## Lint (ruff)
