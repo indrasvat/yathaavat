@@ -4,6 +4,7 @@ import asyncio
 import json
 import os
 import subprocess
+import sys
 import tempfile
 from pathlib import Path
 from typing import Any
@@ -56,9 +57,12 @@ def test_remote_exec_failure_message_explains_pyruntime_lookup_failure() -> None
     message = _remote_exec_failure_message(raw)
 
     assert "PyRuntime address lookup failed" in message
-    assert "ptrace policy blocked the attach" in message
-    assert "CAP_SYS_PTRACE" in message
-    assert "kernel.yama.ptrace_scope" in message
+    if sys.platform.startswith("linux"):
+        assert "ptrace policy blocked the attach" in message
+        assert "CAP_SYS_PTRACE" in message
+        assert "kernel.yama.ptrace_scope" in message
+    else:
+        assert "OS debugger permissions" in message
 
 
 def test_pid_attach_timeout_adds_transcript(monkeypatch: pytest.MonkeyPatch) -> None:

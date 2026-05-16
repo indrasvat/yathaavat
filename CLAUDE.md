@@ -131,6 +131,8 @@ Tests live in `tests/`. Follow existing conventions:
 
 Automation scripts live in `.claude/automations/`. Screenshots go to `.claude/artifacts/screenshots/` (gitignored).
 
+When running TUIs or taking shux screenshots, always clear `NO_COLOR` and set `TERM=xterm-256color COLORTERM=truecolor FORCE_COLOR=1` so color rendering is exercised.
+
 Scripts use `uv run` with inline PEP 723 metadata (`iterm2`, `pyobjc`). They:
 - Create a dedicated iTerm2 window (never use `app.current_terminal_window`)
 - Drive the TUI via `async_send_text()` with control characters
