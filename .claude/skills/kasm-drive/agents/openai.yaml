@@ -1,4 +1,0 @@
-interface:
-  display_name: "Kasm Drive"
-  short_description: "Run yathaavat demos in a Linux Kasm desktop."
-  default_prompt: "Use this skill to launch yathaavat in Kasm, drive a demo, and capture screenshots."

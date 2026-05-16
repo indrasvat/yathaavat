@@ -1,0 +1,8 @@
+# `shux apply review.toml` — atomic, dry-run-able with `--dry-run`.
+[session]
+name = "review"
+
+[[windows]]
+title = "git"
+[[windows.panes]]
+command = ["lazygit"]
