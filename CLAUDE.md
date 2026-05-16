@@ -45,9 +45,7 @@ Demo flows:
 ```bash
 make demo-service          # HTTP service with debugpy (connect via Ctrl+K)
 make vanilla-service       # Plain HTTP service (attach via Ctrl+A)
-make iterm2                # Automated iTerm2 TUI screenshots
-make iterm2-demo-service   # Automated demo-service attach screenshots
-make iterm2-safe           # Automated safe-attach screenshots
+make shux-smoke            # Automated shux TUI smoke screenshot
 ```
 
 ## CI/CD
@@ -100,7 +98,7 @@ Tests live in `tests/`. Follow existing conventions:
 - **Mocking**: create `_Test*` stub classes (see `test_run_to_cursor.py`, `test_dap_client.py`)
 - **Assert exact values** — no fuzzy assertions; check specific fields
 - **Test edge cases**: invalid input, empty state, boundary conditions
-- **No end-to-end TUI tests** in pytest — use iTerm2 automation for visual verification
+- **No end-to-end TUI tests** in pytest — use shux automation for visual verification
 
 ## Key bindings (reference)
 
@@ -127,18 +125,24 @@ Tests live in `tests/`. Follow existing conventions:
 | `F6` | Cycle focus | Global |
 | `Esc` | Cancel/close | Global |
 
-## iTerm2 visual testing
+## shux visual testing
 
-Automation scripts live in `.claude/automations/`. Screenshots go to `.claude/artifacts/screenshots/` (gitignored).
+For terminal UI automation, load the `shux` SKILL and use shux for driving panes,
+waiting on screen text, and capturing screenshots. If shux or the skill is not
+installed, install both with:
 
-Scripts use `uv run` with inline PEP 723 metadata (`iterm2`, `pyobjc`). They:
-- Create a dedicated iTerm2 window (never use `app.current_terminal_window`)
-- Drive the TUI via `async_send_text()` with control characters
-- Wait for screen content with `_wait_for_screen_contains()` (poll-based)
-- Capture screenshots via `screencapture -l` (Quartz window ID correlation)
-- Clean up all windows/sessions in `finally` blocks
+```bash
+curl -sSf https://shux.pages.dev/install.sh | sh
+```
 
-Run: `make iterm2`, `make iterm2-demo-service`, `make iterm2-safe`
+Committed shux specs live in `.shux/templates/`. Screenshots, logs, and other
+ephemeral artifacts go to `.shux/out/` (gitignored).
+
+When running TUIs or taking shux screenshots, always clear `NO_COLOR` and set
+`TERM=xterm-256color COLORTERM=truecolor FORCE_COLOR=1` so color rendering is
+exercised.
+
+Run: `make shux-smoke`
 
 ---
 
@@ -198,18 +202,21 @@ make check      # Full lint + type + test suite
 
 ### 5. Visual verification
 
-Create or update iTerm2 automation scripts in `.claude/automations/` to exercise the new feature visually. The script must:
+Load the `shux` SKILL and create or update shux automation to exercise the new
+feature visually. If shux or the skill is not installed, install both with
+`curl -sSf https://shux.pages.dev/install.sh | sh`. The automation must:
 
-- Follow the `iterm2-driver` skill patterns (docstring, window creation, cleanup)
 - Drive the specific new UI through keyboard interaction
 - Capture screenshots at each verification point
 - Verify screen text contains expected output
 - Verify TUI colors, alignment, keyboard navigation, and panel layout
-- Clean up all iTerm2 windows/sessions in `finally` blocks
+- Clean up all shux sessions/panes with traps or `finally` blocks
 
-Screenshots go to `.claude/artifacts/screenshots/` (gitignored — never commit them). Automation scripts themselves are committed.
+Screenshots and logs go to `.shux/out/` (gitignored — never commit them).
+Reusable shux templates or scripts under `.shux/templates/` or `.shux/scripts/`
+are committed.
 
-Run: `make iterm2` (or the specific automation target)
+Run: `make shux-smoke` (or the specific shux automation target)
 
 ### 6. Lint and format
 
@@ -253,7 +260,7 @@ PR body format:
 
 ## Test plan
 - [ ] `make check` passes
-- [ ] iTerm2 visual verification screenshots reviewed
+- [ ] shux visual verification screenshots reviewed
 - [ ] <feature-specific verification steps>
 ```
 
