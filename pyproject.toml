@@ -18,6 +18,7 @@ dependencies = [
 dev = [
   "mypy>=1.17",
   "pytest>=9.0",
+  "pytest-cov>=7.0",
   "ruff>=0.9.0",
 ]
 
@@ -45,6 +46,21 @@ packages = ["src/yathaavat"]
 [tool.pytest.ini_options]
 testpaths = ["tests"]
 addopts = ["-q"]
+
+[tool.coverage.run]
+branch = true
+relative_files = true
+source_pkgs = ["yathaavat"]
+omit = ["src/yathaavat/_version.py"]
+
+[tool.coverage.report]
+precision = 2
+show_missing = true
+skip_covered = true
+exclude_also = [
+  "if TYPE_CHECKING:",
+  "if __name__ == \"__main__\":",
+]
 
 [tool.ruff]
 target-version = "py314"
