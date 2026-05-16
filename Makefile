@@ -49,21 +49,26 @@ vanilla-service: ## Run vanilla HTTP service (no debugpy in code)
 demo-client: ## Drive the demo HTTP service with requests
 	@uv run --python $(PYTHON) examples/demo_service_client.py
 
-.PHONY: iterm2
-iterm2: ## Drive TUI in iTerm2 + capture screenshots
-	@uv run --python $(PYTHON) .claude/automations/iterm2_capture_tui.py
+.PHONY: shux-install
+shux-install: ## Install shux binary + Codex/agent skill if missing
+	@if ! command -v shux >/dev/null 2>&1; then \
+		curl -sSf https://shux.pages.dev/install.sh | sh; \
+	fi
 
-.PHONY: iterm2-safe
-iterm2-safe: ## Drive safe-attach in iTerm2
-	@uv run --python $(PYTHON) .claude/automations/iterm2_capture_safe_attach.py
-
-.PHONY: iterm2-demo-service
-iterm2-demo-service: ## Drive demo HTTP service attach in iTerm2
-	@uv run --python $(PYTHON) .claude/automations/iterm2_capture_demo_service.py
-
-.PHONY: iterm2-installer
-iterm2-installer: ## Drive install.sh in iTerm2 + capture screenshots
-	@uv run --python $(PYTHON) .claude/automations/iterm2_capture_installer.py
+.PHONY: shux-smoke
+shux-smoke: shux-install ## Drive TUI with shux + capture color screenshot
+	@mkdir -p .shux/out
+	@session="yathaavat-smoke-$$(date +%s)"; \
+		trap 'shux session kill '"'"'$$session'"'"' >/dev/null 2>&1 || true' EXIT; \
+		shux --format json session create "$$session" -d -- \
+			env -u NO_COLOR TERM=xterm-256color COLORTERM=truecolor FORCE_COLOR=1 \
+			uv run --python $(PYTHON) $(PROJECT) >/dev/null; \
+		shux pane set-size -s "$$session" --cols 140 --rows 45 >/dev/null; \
+		shux pane wait-for -s "$$session" --text yathaavat --timeout-ms 10000 >/dev/null; \
+		shux --format json pane snapshot -s "$$session" \
+			| $(PYTHON) -c 'import base64,json,sys; sys.stdout.buffer.write(base64.b64decode(json.load(sys.stdin)["png_base64"]))' \
+			> .shux/out/yathaavat-smoke.png; \
+		printf "$(COLOR_GREEN)OK$(COLOR_RESET) Wrote .shux/out/yathaavat-smoke.png\n"
 
 .PHONY: test
 test: ## Run tests (pytest)
