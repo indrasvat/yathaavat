@@ -31,7 +31,7 @@ from yathaavat.plugins.debugpy import (
 )
 
 
-class FakeDap:
+class _TestDap:
     def __init__(self, responses: dict[str, list[dict[str, object]]] | None = None) -> None:
         self.responses = responses or {}
         self.requests: list[tuple[str, dict[str, object], float | None]] = []
@@ -54,7 +54,7 @@ def _manager(store: SessionStore | None = None) -> DebugpySessionManager:
     return DebugpySessionManager(store=store or SessionStore(), host=RecordingHost())
 
 
-def _set_dap(manager: DebugpySessionManager, dap: FakeDap | None) -> None:
+def _set_dap(manager: DebugpySessionManager, dap: _TestDap | None) -> None:
     cast(Any, manager)._dap = dap
 
 
@@ -98,7 +98,7 @@ def test_resume_and_stepping_commands_use_selected_thread() -> None:
             locals=(VariableInfo(name="x", value="1"),),
         )
         manager = _manager(store)
-        dap = FakeDap()
+        dap = _TestDap()
         _set_dap(manager, dap)
 
         await manager.resume()
@@ -143,7 +143,7 @@ def test_refresh_threads_frames_and_locals_choose_user_frame() -> None:
         source = str(Path.cwd() / "src" / "yathaavat" / "cli.py")
         store = SessionStore()
         manager = _manager(store)
-        dap = FakeDap(
+        dap = _TestDap(
             {
                 "threads": [
                     {
@@ -212,7 +212,7 @@ def test_evaluate_variants_include_frame_and_transcript() -> None:
         store = SessionStore()
         store.update(selected_frame_id=4, state=SessionState.PAUSED)
         manager = _manager(store)
-        dap = FakeDap(
+        dap = _TestDap(
             {
                 "evaluate": [
                     {"body": {"result": "3"}},
@@ -243,7 +243,7 @@ def test_completion_falls_back_to_variables_for_attribute_chain() -> None:
             ),
         )
         manager = _manager(store)
-        dap = FakeDap(
+        dap = _TestDap(
             {
                 "completions": [{"body": {"targets": []}}],
                 "variables": [
@@ -367,7 +367,7 @@ def test_set_breakpoints_normalises_adapter_lines_and_source_cursor(tmp_path: Pa
         store = SessionStore()
         store.update(source_path=str(source.resolve()), source_line=1, source_col=1)
         manager = _manager(store)
-        dap = FakeDap(
+        dap = _TestDap(
             {
                 "setBreakpoints": [
                     {"body": {"breakpoints": [{"line": 2, "verified": True, "message": "moved"}]}}
@@ -402,7 +402,7 @@ def test_run_to_cursor_uses_temporary_breakpoint_and_clears_on_hit(tmp_path: Pat
             threads=(ThreadInfo(id=1, name="main"),),
         )
         manager = _manager(store)
-        dap = FakeDap({"setBreakpoints": [{"body": {"breakpoints": [{"line": 1}]}}]})
+        dap = _TestDap({"setBreakpoints": [{"body": {"breakpoints": [{"line": 1}]}}]})
         _set_dap(manager, dap)
 
         await manager.run_to_cursor(path, 1)
@@ -434,7 +434,7 @@ def test_hard_disconnect_preserves_watch_expressions_and_queued_breakpoints(tmp_
             selected_task_id="t1",
         )
         manager = _manager(store)
-        dap = FakeDap()
+        dap = _TestDap()
         _set_dap(manager, dap)
 
         await manager._hard_disconnect()
