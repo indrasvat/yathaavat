@@ -164,6 +164,15 @@ class SingleWidgetApp(App[None]):
         yield widget
 
 
+class SingleScreenApp(App[None]):
+    def __init__(self, screen: Screen[Any]) -> None:
+        super().__init__()
+        self.test_screen = screen
+
+    async def on_mount(self) -> None:
+        await self.push_screen(self.test_screen)
+
+
 def make_context(
     *,
     host: RecordingHost | None = None,
