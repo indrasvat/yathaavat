@@ -30,7 +30,7 @@ def test_breakpoint_dialog_configures_conditional_breakpoint(tmp_path: Path) -> 
         assert manager.calls == [
             ("set_breakpoint_config", (str(source.resolve()), 12, "x > 1", "3", "seen"))
         ]
-        assert host.notifications[0][0].startswith("Configuring breakpoint")
+        assert host.notifications == [("Configuring breakpoint: svc.py:12", 2.0)]
 
     asyncio.run(run())
 
@@ -48,7 +48,10 @@ def test_breakpoint_dialog_toggles_plain_breakpoint_and_reports_invalid(tmp_path
             await pilot.pause()
             input_widget = dialog.query_one("#bp_input", Input)
             dialog._on_submit(Input.Submitted(input_widget, "not-a-location"))
-            assert "Invalid breakpoint" in str(dialog.query_one("#bp_hint", Static).content)
+            assert str(dialog.query_one("#bp_hint", Static).content) == (
+                "Invalid breakpoint. Use: path:line  [if EXPR]  [hit N]  [log MSG] "
+                "(quote args with spaces)."
+            )
             dialog._on_submit(Input.Submitted(input_widget, "7"))
             if dialog._task is not None:
                 await dialog._task
@@ -72,6 +75,7 @@ def test_breakpoint_dialog_without_backend_notifies_and_closes(tmp_path: Path) -
             input_widget = dialog.query_one("#bp_input", Input)
             dialog._on_submit(Input.Submitted(input_widget, "3"))
             await pilot.pause()
+            assert dialog.is_attached is False
 
         assert host.notifications == [("No session backend available.", 2.0)]
 
@@ -107,8 +111,7 @@ def test_breakpoint_edit_dialog_applies_and_clears_optional_config(tmp_path: Pat
         assert manager.calls == [
             ("set_breakpoint_config", (str(source), 5, "value > 10", None, "value={value}"))
         ]
-        assert "if value > 10" in host.notifications[0][0]
-        assert "log" in host.notifications[0][0]
+        assert host.notifications == [("Updated breakpoint svc.py:5 if value > 10  •  log", 2.0)]
 
     asyncio.run(run())
 

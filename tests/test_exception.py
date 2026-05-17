@@ -100,7 +100,7 @@ def test_exception_tree_actions_copy_and_toggle_breakpoint(tmp_path: Path) -> No
             panel._tree.action_add_breakpoint()
             await pilot.pause()
 
-        assert ("toggle_breakpoint", (str(source), 1)) in manager.calls
+        assert manager.calls == [("toggle_breakpoint", (str(source), 1))]
 
     asyncio.run(run())
 
@@ -126,7 +126,7 @@ def test_exception_tree_selects_matching_stack_frame_or_reports_failure(
             panel._tree._jump_to_frame(frame)
             await pilot.pause()
 
-        assert ("select_frame", (9,)) in manager.calls
+        assert manager.calls == [("select_frame", (9,))]
         assert host.notifications == [("stopped", 2.5)]
 
     asyncio.run(run())

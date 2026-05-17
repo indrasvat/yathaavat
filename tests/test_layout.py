@@ -29,7 +29,7 @@ def test_slot_tabs_renders_empty_state_without_registered_panels() -> None:
         )
         async with SingleWidgetApp(widget).run_test() as pilot:
             await pilot.pause()
-            assert "(no panels registered)" in str(widget.query_one(Static).content)
+            assert str(widget.query_one(Static).content) == "Left\n\n(no panels registered)"
 
     asyncio.run(run())
 
@@ -62,6 +62,10 @@ def test_slot_tabs_renders_registered_contributions_in_order() -> None:
         )
         async with SingleWidgetApp(widget).run_test() as pilot:
             await pilot.pause()
+            panel_ids = [
+                static.id for static in widget.query(Static) if static.id in {"first", "second"}
+            ]
+            assert panel_ids == ["first", "second"]
             assert str(widget.query_one("#first", Static).content) == "first"
             assert str(widget.query_one("#second", Static).content) == "second"
 

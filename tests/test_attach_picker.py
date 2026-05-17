@@ -11,7 +11,7 @@ from yathaavat.app import attach
 from yathaavat.core.processes import PROCESS_DISCOVERY, ProcessInfo
 
 
-@dataclass(slots=True)
+@dataclass(frozen=True, slots=True)
 class _Discovery:
     processes: list[ProcessInfo]
 
