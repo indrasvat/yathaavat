@@ -170,7 +170,10 @@ class LaunchPicker(ModalScreen[None]):
         else:
             # No query: history first (MRU), then files (boosted first)
             history_rows = [r for r in rows if r.kind == "history"]
-            file_rows = [r for r in rows if r.kind == "file"]
+            file_rows = sorted(
+                (r for r in rows if r.kind == "file"),
+                key=lambda r: (r.score, r.command),
+            )
             rows = history_rows + file_rows
 
         return rows
