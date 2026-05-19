@@ -1,16 +1,21 @@
 from __future__ import annotations
 
 import asyncio
+from dataclasses import dataclass
 from pathlib import Path
 from typing import cast
 
 from textual.widgets import DataTable, ListView, RichLog, Static, TextArea
 
 from tests.support import RecordingHost, RecordingManager, SingleWidgetApp, make_context
+from yathaavat.app.expression import ExpressionInput
 from yathaavat.app.panels import (
     BreakpointsPanel,
     BreakpointsTable,
+    CodeView,
+    ConsolePanel,
     LocalsPanel,
+    LocalsTable,
     SourcePanel,
     StackPanel,
     TranscriptPanel,
@@ -68,6 +73,22 @@ def test_transcript_panel_appends_incrementally_and_handles_reset() -> None:
             store.update(transcript=("fresh",))
             await pilot.pause()
             assert len(log.lines) == 1
+
+    asyncio.run(run())
+
+
+def test_code_view_copy_selection_and_line_mapping() -> None:
+    async def run() -> None:
+        view = CodeView()
+        async with SingleWidgetApp(view).run_test() as pilot:
+            await pilot.pause()
+            view.text = "alpha\nbeta\n"
+            view.show_line_numbers = True
+            view.cursor_location = (0, 0)
+            assert view.line_number_at_viewport_y(0) == 1
+
+            view.action_copy_selection()
+            await pilot.pause()
 
     asyncio.run(run())
 
@@ -168,6 +189,38 @@ def test_locals_panel_expands_variables_and_reports_unsupported() -> None:
     asyncio.run(run())
 
 
+def test_locals_table_reports_unsupported_expansion_and_copies_value() -> None:
+    async def run() -> None:
+        host = RecordingHost()
+        ctx = make_context(host=host)
+        app = SingleWidgetApp(lambda: LocalsTable(ctx=ctx))
+
+        async with app.run_test() as pilot:
+            await pilot.pause()
+            table = cast(LocalsTable, app.widget)
+            table.set_root(
+                (
+                    VariableInfo(
+                        name="root",
+                        value="{...}",
+                        type="dict",
+                        variables_reference=9,
+                    ),
+                )
+            )
+            table.move_cursor(row=0)
+            await table.action_toggle_expand()
+            table.action_copy_value()
+            await pilot.pause()
+
+        assert host.notifications == [
+            ("Variable expansion is not supported by this session.", 2.5),
+            ("Copied value.", 1.2),
+        ]
+
+    asyncio.run(run())
+
+
 def test_breakpoints_panel_renders_jump_and_delete_actions(tmp_path: Path) -> None:
     async def run() -> None:
         manager = RecordingManager()
@@ -192,5 +245,78 @@ def test_breakpoints_panel_renders_jump_and_delete_actions(tmp_path: Path) -> No
             snap = store.snapshot()
             assert (snap.source_path, snap.source_line, snap.source_col) == (str(source), 1, 1)
             assert manager.calls[-1] == ("toggle_breakpoint", (str(source), 1))
+
+    asyncio.run(run())
+
+
+@dataclass(frozen=True, slots=True)
+class _RowHighlighted:
+    cursor_row: int
+
+
+def test_breakpoints_table_copy_edit_highlight_and_missing_manager(tmp_path: Path) -> None:
+    async def run() -> None:
+        source = tmp_path / "worker.py"
+        source.write_text("print('x')\n", encoding="utf-8")
+        host = RecordingHost()
+        ctx = make_context(host=host)
+        store = ctx.services.get(SESSION_STORE)
+        app = SingleWidgetApp(lambda: BreakpointsTable(ctx=ctx, store=store))
+
+        async with app.run_test() as pilot:
+            await pilot.pause()
+            table = cast(BreakpointsTable, app.widget)
+            table.set_breakpoints(
+                (
+                    BreakpointInfo(
+                        path=str(source),
+                        line=3,
+                        verified=False,
+                        condition="x > 1",
+                    ),
+                )
+            )
+            table.focus()
+            table.move_cursor(row=0)
+            table._on_row_highlighted(cast(DataTable.RowHighlighted, _RowHighlighted(0)))
+            table.action_copy_location()
+            table.action_edit_breakpoint()
+            await table.action_delete_breakpoint()
+            await pilot.pause()
+
+        assert (store.snapshot().source_path, store.snapshot().source_line) == (str(source), 3)
+        assert [type(screen).__name__ for screen in host.screens] == ["BreakpointEditDialog"]
+        assert host.notifications == [("Copied location.", 1.2), ("No session.", 2.0)]
+
+    asyncio.run(run())
+
+
+def test_console_panel_evaluates_or_reports_no_session() -> None:
+    async def run() -> None:
+        no_session = ConsolePanel(ctx=make_context())
+        async with SingleWidgetApp(no_session).run_test() as pilot:
+            await pilot.pause()
+            control = no_session.query_one("#console_input", ExpressionInput)
+            no_session._on_submit(ExpressionInput.Submitted(control, "x + 1"))
+            await pilot.pause()
+            assert len(no_session.query_one("#console_log", RichLog).lines) == 2
+
+        manager = RecordingManager(evaluate_result="42")
+        ok = ConsolePanel(ctx=make_context(manager=manager))
+        async with SingleWidgetApp(ok).run_test() as pilot:
+            await pilot.pause()
+            control = ok.query_one("#console_input", ExpressionInput)
+            ok._on_submit(ExpressionInput.Submitted(control, "6 * 7"))
+            await pilot.pause()
+            assert manager.calls == [("evaluate", ("6 * 7",))]
+
+        failing_manager = RecordingManager(fail={"evaluate": RuntimeError("boom")})
+        failing = ConsolePanel(ctx=make_context(manager=failing_manager))
+        async with SingleWidgetApp(failing).run_test() as pilot:
+            await pilot.pause()
+            control = failing.query_one("#console_input", ExpressionInput)
+            failing._on_submit(ExpressionInput.Submitted(control, "explode()"))
+            await pilot.pause()
+            assert failing_manager.calls == [("evaluate", ("explode()",))]
 
     asyncio.run(run())
