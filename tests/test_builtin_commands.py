@@ -18,7 +18,7 @@ from yathaavat.plugins.builtin import plugin
 
 
 def _registered_context(
-    *, manager: RecordingManager | None = None, host: RecordingHost | None = None
+    *, manager: object | None = None, host: RecordingHost | None = None
 ) -> AppContext:
     ctx = make_context(host=host, manager=manager)
     plugin().register(ctx)
@@ -59,6 +59,35 @@ def test_debug_commands_call_session_manager_and_report_failures() -> None:
     assert ("pause", ()) in manager.calls
     assert ("step_over", ()) in manager.calls
     assert host.notifications[-1][0] == "adapter is busy"
+
+
+def test_debug_commands_without_session_report_prototype_notifications() -> None:
+    host = RecordingHost()
+    ctx = _registered_context(host=host)
+
+    async def run() -> None:
+        for command_id in (
+            "debug.continue",
+            "debug.pause",
+            "debug.step_over",
+            "debug.step_in",
+            "debug.step_out",
+            "debug.run_to_cursor",
+            "breakpoint.toggle",
+        ):
+            await ctx.commands.get(command_id).run()
+
+    asyncio.run(run())
+
+    assert [message for message, _timeout in host.notifications] == [
+        "continue (prototype)",
+        "pause (prototype)",
+        "step over (prototype)",
+        "step in (prototype)",
+        "step out (prototype)",
+        "run to cursor (prototype)",
+        "toggle breakpoint (prototype)",
+    ]
 
 
 def test_breakpoint_toggle_prefers_source_cursor_then_selected_frame(tmp_path: Path) -> None:
@@ -117,6 +146,50 @@ def test_run_to_cursor_guardrails_and_success_path(tmp_path: Path) -> None:
     assert manager.calls[-1] == ("run_to_cursor", (str(source), 2))
 
 
+def test_run_to_cursor_reports_same_line_unsupported_backend_and_failures(
+    tmp_path: Path,
+) -> None:
+    source = tmp_path / "worker.py"
+    source.write_text("one\ntwo\n", encoding="utf-8")
+
+    same_line_host = RecordingHost()
+    same_line_manager = RecordingManager()
+    same_line_ctx = _registered_context(manager=same_line_manager, host=same_line_host)
+    same_line_ctx.services.get(SESSION_STORE).update(
+        state=SessionState.PAUSED,
+        source_path=str(source),
+        source_line=1,
+        frames=(FrameInfo(id=1, name="main", path=str(source), line=1),),
+        selected_frame_id=1,
+    )
+    asyncio.run(same_line_ctx.commands.get("debug.run_to_cursor").run())
+    assert same_line_host.notifications[-1][0].startswith("Move the Source cursor")
+    assert same_line_manager.calls == []
+
+    unsupported_host = RecordingHost()
+    unsupported_ctx = _registered_context(manager=object(), host=unsupported_host)
+    unsupported_ctx.services.get(SESSION_STORE).update(
+        state=SessionState.PAUSED,
+        source_path=str(source),
+        source_line=2,
+    )
+    asyncio.run(unsupported_ctx.commands.get("debug.run_to_cursor").run())
+    assert (
+        unsupported_host.notifications[-1][0] == "Run to cursor is not supported by this backend."
+    )
+
+    failure_host = RecordingHost()
+    failure_manager = RecordingManager(fail={"run_to_cursor": RuntimeError("adapter rejected")})
+    failure_ctx = _registered_context(manager=failure_manager, host=failure_host)
+    failure_ctx.services.get(SESSION_STORE).update(
+        state=SessionState.PAUSED,
+        source_path=str(source),
+        source_line=2,
+    )
+    asyncio.run(failure_ctx.commands.get("debug.run_to_cursor").run())
+    assert failure_host.notifications[-1][0] == "adapter rejected"
+
+
 def test_jump_to_execution_updates_source_only_when_paused(tmp_path: Path) -> None:
     host = RecordingHost()
     ctx = _registered_context(host=host)
@@ -132,6 +205,20 @@ def test_jump_to_execution_updates_source_only_when_paused(tmp_path: Path) -> No
     asyncio.run(ctx.commands.get("source.jump_to_exec").run())
     snap = store.snapshot()
     assert (snap.source_path, snap.source_line, snap.source_col) == (str(source), 1, 1)
+
+
+def test_jump_to_execution_reports_missing_paused_frame() -> None:
+    host = RecordingHost()
+    ctx = _registered_context(host=host)
+    ctx.services.get(SESSION_STORE).update(
+        state=SessionState.PAUSED,
+        frames=(FrameInfo(id=9, name="main", path=None, line=None),),
+        selected_frame_id=9,
+    )
+
+    asyncio.run(ctx.commands.get("source.jump_to_exec").run())
+
+    assert host.notifications[-1][0] == "No execution frame."
 
 
 def test_task_commands_refresh_and_toggle_mode() -> None:
@@ -159,6 +246,17 @@ def test_task_refresh_without_capable_manager_notifies() -> None:
     assert host.notifications[-1][0] == "Task capture unavailable on this backend."
 
 
+def test_task_refresh_reports_backend_failures() -> None:
+    host = RecordingHost()
+    manager = RecordingManager(fail={"refresh_tasks": RuntimeError("task capture failed")})
+    ctx = _registered_context(manager=manager, host=host)
+
+    asyncio.run(ctx.commands.get("tasks.refresh").run())
+
+    assert manager.calls == [("refresh_tasks", ())]
+    assert host.notifications[-1][0] == "task capture failed"
+
+
 def test_quit_shuts_down_session_before_exiting() -> None:
     manager = RecordingManager()
     host = RecordingHost()
@@ -167,6 +265,18 @@ def test_quit_shuts_down_session_before_exiting() -> None:
     asyncio.run(ctx.commands.get("app.quit").run())
 
     assert manager.calls == [("shutdown", ())]
+    assert host.exited is True
+
+
+def test_quit_reports_shutdown_failure_but_still_exits() -> None:
+    manager = RecordingManager(fail={"shutdown": RuntimeError("shutdown failed")})
+    host = RecordingHost()
+    ctx = _registered_context(manager=manager, host=host)
+
+    asyncio.run(ctx.commands.get("app.quit").run())
+
+    assert manager.calls == [("shutdown", ())]
+    assert host.notifications[-1][0] == "shutdown failed"
     assert host.exited is True
 
 

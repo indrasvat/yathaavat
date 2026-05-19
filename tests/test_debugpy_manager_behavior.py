@@ -20,11 +20,13 @@ from yathaavat.core import (
     VariableInfo,
     WatchInfo,
 )
+from yathaavat.core.dap import DapRequestError
 from yathaavat.plugins.debugpy import (
     DebugpyPlugin,
     DebugpySessionManager,
     _as_list,
     _body,
+    _BreakpointConfig,
     _is_pyruntime_lookup_failure,
     _is_user_path,
     _parse_variables,
@@ -464,3 +466,290 @@ def test_debugpy_plugin_reuses_existing_store_and_registers_commands() -> None:
         "session.disconnect",
         "session.terminate",
     }
+
+
+def test_require_helpers_report_missing_dap_or_threads() -> None:
+    manager = _manager()
+    with pytest.raises(RuntimeError, match="No active debug session"):
+        manager._require_dap()
+    with pytest.raises(RuntimeError, match="No threads available"):
+        manager._require_thread()
+
+    manager.store.update(threads=(ThreadInfo(id=42, name="worker"),))
+    assert manager._require_thread() == 42
+
+
+def test_get_variables_and_quick_variables_handle_invalid_refs_and_failures() -> None:
+    async def run() -> None:
+        store = SessionStore()
+        manager = _manager(store)
+        dap = _TestDap(
+            {
+                "variables": [
+                    {
+                        "body": {
+                            "variables": [
+                                {
+                                    "name": "x",
+                                    "value": "1",
+                                    "type": "int",
+                                    "variablesReference": 0,
+                                }
+                            ]
+                        }
+                    }
+                ]
+            }
+        )
+        _set_dap(manager, dap)
+
+        assert await manager.get_variables(0) == ()
+        assert await manager._variables_quick(-1) == ()
+        assert await manager.get_variables(7) == (VariableInfo(name="x", value="1", type="int"),)
+
+        class FailingDap(_TestDap):
+            async def request(
+                self, command: str, arguments: dict[str, object], timeout_s: float | None = None
+            ) -> dict[str, object]:
+                raise RuntimeError("no variables")
+
+        _set_dap(manager, FailingDap())
+        assert await manager._variables_quick(7) == ()
+
+    asyncio.run(run())
+
+
+def test_completion_uses_dap_results_and_running_state_skips_variable_fallback() -> None:
+    async def run() -> None:
+        store = SessionStore()
+        store.update(state=SessionState.RUNNING)
+        manager = _manager(store)
+        dap = _TestDap(
+            {
+                "completions": [
+                    {
+                        "body": {
+                            "targets": [
+                                {
+                                    "label": "alpha",
+                                    "text": "alpha",
+                                    "start": 0,
+                                    "length": 1,
+                                    "type": "property",
+                                }
+                            ]
+                        }
+                    },
+                    {"body": {"targets": []}},
+                ]
+            }
+        )
+        _set_dap(manager, dap)
+
+        parsed = await manager.complete("a", cursor=1)
+        assert [item.label for item in parsed] == ["alpha"]
+        assert await manager.complete("order.", cursor=len("order.")) == ()
+
+    asyncio.run(run())
+
+
+def test_select_frame_missing_frame_clears_source_and_refreshes_locals() -> None:
+    async def run() -> None:
+        store = SessionStore()
+        store.update(frames=(FrameInfo(id=1, name="main", path="/repo/app.py", line=10),))
+        manager = _manager(store)
+        dap = _TestDap({"scopes": [{"body": {"scopes": []}}]})
+        _set_dap(manager, dap)
+
+        await manager.select_frame(99)
+
+        snap = store.snapshot()
+        assert snap.selected_frame_id == 99
+        assert snap.source_path is None
+        assert snap.locals == ()
+
+    asyncio.run(run())
+
+
+def test_exception_info_parses_break_mode_and_handles_bad_payloads() -> None:
+    async def run() -> None:
+        manager = _manager()
+        dap = _TestDap(
+            {
+                "exceptionInfo": [
+                    {
+                        "body": {
+                            "exceptionId": "ValueError",
+                            "description": "bad",
+                            "breakMode": "always",
+                            "details": {"stackTrace": "Traceback...\nValueError: bad"},
+                        }
+                    },
+                    {"body": {"exceptionId": 123}},
+                ]
+            }
+        )
+        _set_dap(manager, dap)
+
+        info = await manager.get_exception_info(1)
+        assert info is not None
+        assert info.exception_id == "ValueError"
+        assert info.stack_trace.startswith("Traceback")
+        assert await manager.get_exception_info(1) is None
+
+        class ErrorDap(_TestDap):
+            async def request(
+                self, command: str, arguments: dict[str, object], timeout_s: float | None = None
+            ) -> dict[str, object]:
+                raise DapRequestError(
+                    command="exceptionInfo",
+                    message="not stopped",
+                    response={"success": False},
+                )
+
+        _set_dap(manager, ErrorDap())
+        assert await manager.get_exception_info(1) is None
+
+    asyncio.run(run())
+
+
+def test_fetch_exception_info_updates_only_current_exception_stop() -> None:
+    async def run() -> None:
+        store = SessionStore()
+        store.update(
+            state=SessionState.PAUSED,
+            stop_reason="exception",
+            selected_thread_id=3,
+        )
+        manager = _manager(store)
+        dap = _TestDap(
+            {
+                "exceptionInfo": [
+                    {
+                        "body": {
+                            "exceptionId": "RuntimeError",
+                            "description": "boom",
+                            "breakMode": "unhandled",
+                        }
+                    },
+                    {
+                        "body": {
+                            "exceptionId": "ValueError",
+                            "description": "stale",
+                            "breakMode": "unhandled",
+                        }
+                    },
+                ]
+            }
+        )
+        _set_dap(manager, dap)
+
+        await manager._fetch_exception_info(3)
+        assert store.snapshot().exception_info is not None
+
+        store.update(stop_reason="breakpoint")
+        await manager._fetch_exception_info(3)
+        assert store.snapshot().exception_info is not None
+
+    asyncio.run(run())
+
+
+def test_on_event_updates_session_state_and_filters_output() -> None:
+    async def run() -> None:
+        store = SessionStore()
+        host = RecordingHost()
+        manager = DebugpySessionManager(store=store, host=host)
+        dap = _TestDap(
+            {
+                "threads": [{"body": {"threads": [{"id": 1, "name": "main"}]}}],
+                "stackTrace": [
+                    {
+                        "body": {
+                            "stackFrames": [
+                                {
+                                    "id": 5,
+                                    "name": "main",
+                                    "line": 1,
+                                    "source": {"path": str(Path.cwd() / "pyproject.toml")},
+                                }
+                            ]
+                        }
+                    }
+                ],
+                "scopes": [{"body": {"scopes": []}}],
+                "evaluate": [{"body": {"result": "[]"}}],
+            }
+        )
+        _set_dap(manager, dap)
+
+        await manager._on_event({"event": "initialized", "body": {}})
+        assert manager._initialized.is_set()
+
+        await manager._on_event({"event": "process", "body": {"systemProcessId": 123}})
+        assert store.snapshot().pid == 123
+
+        await manager._on_event(
+            {"event": "output", "body": {"category": "telemetry", "output": "x"}}
+        )
+        await manager._on_event(
+            {"event": "output", "body": {"category": "stdout", "output": "hi\n"}}
+        )
+        assert store.snapshot().transcript[-1] == "hi"
+
+        await manager._on_event(
+            {
+                "event": "stopped",
+                "body": {"reason": "breakpoint", "threadId": 1, "description": "hit"},
+            }
+        )
+        snap = store.snapshot()
+        assert snap.state is SessionState.PAUSED
+        assert snap.selected_thread_id == 1
+        assert snap.selected_frame_id == 5
+        assert snap.stop_reason == "breakpoint"
+
+        await manager._on_event({"event": "continued", "body": {}})
+        assert store.snapshot().state is SessionState.RUNNING
+
+    asyncio.run(run())
+
+
+def test_set_breakpoints_clears_and_preserves_stronger_config_on_line_collision(
+    tmp_path: Path,
+) -> None:
+    async def run() -> None:
+        source = tmp_path / "main.py"
+        source.write_text("print('x')\n", encoding="utf-8")
+        path = str(source.resolve())
+        store = SessionStore()
+        manager = _manager(store)
+        dap = _TestDap(
+            {
+                "setBreakpoints": [
+                    {
+                        "body": {
+                            "breakpoints": [
+                                {"line": 10, "verified": True},
+                                {"line": 10, "verified": True},
+                            ]
+                        }
+                    },
+                    {"body": {"breakpoints": []}},
+                ]
+            }
+        )
+        _set_dap(manager, dap)
+
+        manager._breakpoints[path] = {
+            1: _BreakpointConfig(condition="x > 1"),
+            2: _BreakpointConfig(condition="x > 1", log_message="x={x}"),
+        }
+        await manager._set_breakpoints(path, [1, 2])
+        assert sorted(manager._breakpoints[path]) == [10]
+        assert manager._breakpoints[path][10].log_message == "x={x}"
+
+        await manager._set_breakpoints(path, [])
+        assert store.snapshot().breakpoints == ()
+        assert store.snapshot().transcript[-1] == "Breakpoints cleared: main.py"
+
+    asyncio.run(run())
