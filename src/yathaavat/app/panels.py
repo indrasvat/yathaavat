@@ -12,6 +12,7 @@ from textual import on
 from textual.app import ComposeResult
 from textual.binding import Binding, BindingType
 from textual.containers import Container, Horizontal
+from textual.css.query import NoMatches
 from textual.document._document import Document, Selection
 from textual.events import MouseDown
 from textual.screen import ModalScreen
@@ -813,7 +814,14 @@ class LocalsTable(DataTable[str]):
         finally:
             self._finish_fetch(ref, token)
         current = self._cache.get(ref) or ()
-        self._cache[ref] = (*current, *page.variables)
+        new_variables = _new_variables(current, page.variables)
+        if len(new_variables) < len(page.variables):
+            self._cache[ref] = (*current, *new_variables)
+            self._pages[ref] = VariablePage(variables=self._cache[ref])
+            self._visible_counts[ref] = len(self._cache[ref])
+            self._rebuild()
+            return
+        self._cache[ref] = (*current, *new_variables)
         self._pages[ref] = page
         self._visible_counts[ref] = len(self._cache[ref])
         self._rebuild()
@@ -1031,6 +1039,16 @@ def _node_matches_filter(node: _VarNode, query: str) -> bool:
     return query in hay.casefold()
 
 
+def _new_variables(
+    current: tuple[VariableInfo, ...],
+    incoming: tuple[VariableInfo, ...],
+) -> tuple[VariableInfo, ...]:
+    if not current or not incoming:
+        return incoming
+    current_names = {variable.name for variable in current}
+    return tuple(variable for variable in incoming if variable.name not in current_names)
+
+
 def _changed_variable_references(
     old: tuple[VariableInfo, ...], new: tuple[VariableInfo, ...]
 ) -> tuple[int, ...]:
@@ -1095,21 +1113,25 @@ class _LocalsFilterInput(Input):
         Binding("escape", "clear_filter", "Clear", show=False),
     ]
 
+    def _panel(self) -> LocalsPanel | None:
+        try:
+            return self.query_ancestor(LocalsPanel)
+        except NoMatches:
+            return None
+
     def action_focus_table(self) -> None:
-        panel = self.parent
-        focus_table = getattr(panel, "focus_table", None)
-        if callable(focus_table):
-            focus_table()
+        panel = self._panel()
+        if panel is not None:
+            panel.focus_table()
 
     def action_clear_filter(self) -> None:
         self.value = ""
         self.action_focus_table()
 
     def on_input_changed(self, event: Input.Changed) -> None:
-        panel = self.parent
-        apply_filter = getattr(panel, "apply_filter", None)
-        if callable(apply_filter):
-            apply_filter(event.value)
+        panel = self._panel()
+        if panel is not None:
+            panel.apply_filter(event.value)
 
 
 class LocalsPanel(Container):

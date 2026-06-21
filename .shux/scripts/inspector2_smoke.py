@@ -86,6 +86,7 @@ def main() -> int:
 
         focus_locals(pane)
         send_data(pane, DOWN)
+        send_data(pane, DOWN)
         run_palette_command(pane, "expand selected local", "Expand Selected Local")
         snapshot(pane, "inspector2-debug-after-expand-key.png")
         wait_for(pane, "Load more")
@@ -107,7 +108,7 @@ def main() -> int:
         send_data(pane, ENTER)
         send_data(pane, DOWN)
         run_palette_command(pane, "edit selected local", "Edit Selected Local")
-        wait_for(pane, "Edit")
+        wait_for(pane, "Edit 013", timeout_ms=10000)
         snapshot(pane, "inspector2-05-edit-dialog.png")
 
         send_text(pane, "'changed'")
@@ -145,21 +146,26 @@ def run_json(args: list[str]) -> dict[str, Any]:
 
 
 def wait_for(pane: str, text: str, *, timeout_ms: int = 5000) -> None:
-    run(
-        [
-            "shux",
-            "pane",
-            "wait-for",
-            "-s",
-            SESSION,
-            "--pane",
-            pane,
-            "--text",
-            text,
-            "--timeout-ms",
-            str(timeout_ms),
-        ]
-    )
+    try:
+        run(
+            [
+                "shux",
+                "pane",
+                "wait-for",
+                "-s",
+                SESSION,
+                "--pane",
+                pane,
+                "--text",
+                text,
+                "--timeout-ms",
+                str(timeout_ms),
+            ]
+        )
+    except subprocess.CalledProcessError:
+        safe_name = "".join(ch if ch.isalnum() else "-" for ch in text.casefold()).strip("-")
+        snapshot(pane, f"inspector2-debug-wait-for-{safe_name}.png")
+        raise
 
 
 def send_text(pane: str, text: str) -> None:

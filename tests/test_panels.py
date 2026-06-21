@@ -368,6 +368,97 @@ def test_locals_table_chunks_full_variable_responses_locally() -> None:
     asyncio.run(run())
 
 
+def test_locals_table_does_not_append_duplicate_full_response_pages() -> None:
+    async def run() -> None:
+        full_response = VariablePage(
+            variables=(
+                VariableInfo(name="[0]", value="zero", type="str"),
+                VariableInfo(name="[1]", value="one", type="str"),
+            ),
+            start=0,
+            count=2,
+        )
+        manager = RecordingManager(
+            variable_pages={
+                (9, 0, 2, None): full_response,
+                (9, 2, 2, None): full_response,
+            }
+        )
+        ctx = make_context(manager=manager)
+        app = SingleWidgetApp(lambda: LocalsTable(ctx=ctx, page_size=2))
+
+        async with app.run_test() as pilot:
+            await pilot.pause()
+            table = cast(LocalsTable, app.widget)
+            table.set_root((VariableInfo(name="items", value="list[2]", variables_reference=9),))
+            table.move_cursor(row=0)
+            await table.action_toggle_expand()
+            await pilot.pause()
+
+            assert [node.name for node in table.visible_nodes()] == [
+                "items",
+                "[0]",
+                "[1]",
+                "Load more...",
+            ]
+
+            table.move_cursor(row=3)
+            await table.action_toggle_expand()
+            await pilot.pause()
+
+            assert [node.name for node in table.visible_nodes()] == ["items", "[0]", "[1]"]
+            assert manager.calls.count(("get_variables_page", (9, 2, 2, None))) == 1
+
+    asyncio.run(run())
+
+
+def test_locals_table_keeps_new_variables_from_partially_overlapping_pages() -> None:
+    async def run() -> None:
+        manager = RecordingManager(
+            variable_pages={
+                (9, 0, 2, None): VariablePage(
+                    variables=(
+                        VariableInfo(name="[0]", value="zero", type="str"),
+                        VariableInfo(name="[1]", value="one", type="str"),
+                    ),
+                    start=0,
+                    count=2,
+                ),
+                (9, 2, 2, None): VariablePage(
+                    variables=(
+                        VariableInfo(name="[1]", value="one", type="str"),
+                        VariableInfo(name="[2]", value="two", type="str"),
+                    ),
+                    start=2,
+                    count=2,
+                ),
+            }
+        )
+        ctx = make_context(manager=manager)
+        app = SingleWidgetApp(lambda: LocalsTable(ctx=ctx, page_size=2))
+
+        async with app.run_test() as pilot:
+            await pilot.pause()
+            table = cast(LocalsTable, app.widget)
+            table.set_root((VariableInfo(name="items", value="list[3]", variables_reference=9),))
+            table.move_cursor(row=0)
+            await table.action_toggle_expand()
+            await pilot.pause()
+
+            table.move_cursor(row=3)
+            await table.action_toggle_expand()
+            await pilot.pause()
+
+            assert [node.name for node in table.visible_nodes()] == [
+                "items",
+                "[0]",
+                "[1]",
+                "[2]",
+            ]
+
+    asyncio.run(run())
+
+
 def test_locals_table_falls_back_to_get_variables_for_legacy_backends() -> None:
     class LegacyManager(RecordingManager):
         def __getattribute__(self, name: str) -> object:
