@@ -289,10 +289,18 @@ def test_source_and_dialog_commands_delegate_to_host() -> None:
     asyncio.run(ctx.commands.get("watch.add").run())
     asyncio.run(ctx.commands.get("breakpoint.add").run())
     asyncio.run(ctx.commands.get("view.zoom").run())
+    asyncio.run(ctx.commands.get("view.locals").run())
+    asyncio.run(ctx.commands.get("view.locals.filter").run())
+    asyncio.run(ctx.commands.get("view.locals.expand").run())
+    asyncio.run(ctx.commands.get("view.locals.edit").run())
 
     assert host.source_find_opens == 1
     assert len(host.screens) == 3
     assert host.zooms == 1
+    assert host.locals_focuses == 1
+    assert host.locals_filter_focuses == 1
+    assert host.local_expands == 1
+    assert host.local_edits == 1
 
 
 def test_breakpoint_toggle_reports_missing_location() -> None:

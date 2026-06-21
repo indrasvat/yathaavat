@@ -1,10 +1,11 @@
 from __future__ import annotations
 
 import asyncio
-from collections.abc import Callable
+import os
+from collections.abc import Awaitable, Callable
 from dataclasses import dataclass
 from pathlib import Path
-from typing import ClassVar
+from typing import ClassVar, cast
 
 from rich.style import Style
 from textual import on
@@ -13,6 +14,7 @@ from textual.binding import Binding, BindingType
 from textual.containers import Container, Horizontal
 from textual.document._document import Document, Selection
 from textual.events import MouseDown
+from textual.screen import ModalScreen
 from textual.strip import Strip
 from textual.widgets import DataTable, Input, ListItem, ListView, RichLog, Static, TextArea
 
@@ -35,7 +37,9 @@ from yathaavat.core import (
     SessionManager,
     SessionSnapshot,
     SessionStore,
+    SetVariableManager,
     VariableInfo,
+    VariablePage,
     VariablesManager,
 )
 
@@ -183,6 +187,8 @@ class CodeView(TextArea):
         Binding("ctrl+f", "app.command('source.find')", show=False),
         Binding("/", "app.command('source.find')", show=False),
         Binding("ctrl+g", "app.command('source.goto')", show=False),
+        Binding("ctrl+l", "app.focus_locals", show=False, priority=True),
+        Binding("alt+l", "app.focus_locals", show=False, priority=True),
         Binding("ctrl+e", "app.command('source.jump_to_exec')", show=False),
         Binding("ctrl+w", "app.command('watch.add')", show=False),
         Binding("ctrl+b", "app.command('breakpoint.add')", show=False),
@@ -655,15 +661,24 @@ class _VarNode:
     type: str | None
     variables_reference: int
     depth: int
+    parent_reference: int | None = None
+    load_more_reference: int | None = None
+    load_more_start: int | None = None
+
+    @property
+    def is_load_more(self) -> bool:
+        return self.load_more_reference is not None
 
 
 class LocalsTable(DataTable[str]):
     BINDINGS: ClassVar[list[BindingType]] = [
         ("enter", "toggle_expand", "Expand"),
+        ("/", "focus_filter", "Filter"),
+        ("e", "edit_value", "Edit"),
         ("y", "copy_value", "Copy Value"),
     ]
 
-    def __init__(self, *, ctx: AppContext) -> None:
+    def __init__(self, *, ctx: AppContext, page_size: int = 50) -> None:
         super().__init__(
             id="locals_table",
             cursor_type="row",
@@ -672,28 +687,63 @@ class LocalsTable(DataTable[str]):
             cell_padding=0,
         )
         self._ctx = ctx
+        self._page_size = page_size
         self._root: tuple[VariableInfo, ...] = ()
+        self._root_parent_reference: int | None = None
         self._expanded: set[int] = set()
         self._cache: dict[int, tuple[VariableInfo, ...]] = {}
+        self._pages: dict[int, VariablePage] = {}
+        self._visible_counts: dict[int, int] = {}
+        self._fetching: dict[int, int] = {}
+        self._next_fetch_token = 0
         self._flat: list[_VarNode] = []
+        self._filter: str = ""
         self.add_columns("Name", "Type", "Value")
 
-    def set_root(self, locals_: tuple[VariableInfo, ...]) -> None:
-        if locals_ == self._root:
+    def set_root(
+        self, locals_: tuple[VariableInfo, ...], *, parent_reference: int | None = None
+    ) -> None:
+        if locals_ == self._root and parent_reference == self._root_parent_reference:
+            return
+        if parent_reference == self._root_parent_reference:
+            changed_refs = _changed_variable_references(self._root, locals_)
+            for ref in changed_refs:
+                self._clear_variable_tree(ref)
+            self._root = locals_
+            self._rebuild()
             return
         self._root = locals_
+        self._root_parent_reference = parent_reference
         self._expanded.clear()
         self._cache.clear()
+        self._pages.clear()
+        self._visible_counts.clear()
+        self._fetching.clear()
+        self._next_fetch_token += 1
         self._rebuild()
+
+    def visible_nodes(self) -> tuple[_VarNode, ...]:
+        return tuple(self._flat)
+
+    def set_filter(self, value: str) -> None:
+        next_filter = value.strip().casefold()
+        if next_filter == self._filter:
+            return
+        self._filter = next_filter
+        self._rebuild()
+        if self._flat:
+            self.move_cursor(row=0)
 
     async def action_toggle_expand(self) -> None:
         node = self._selected_node()
         if node is None or node.variables_reference <= 0:
+            if node is not None and node.is_load_more:
+                await self._load_more(node)
             return
 
         ref = node.variables_reference
         if ref in self._expanded:
-            self._expanded.remove(ref)
+            self._clear_variable_tree(ref)
             self._rebuild()
             return
 
@@ -706,22 +756,169 @@ class LocalsTable(DataTable[str]):
             return
 
         if ref not in self._cache:
+            if ref in self._fetching:
+                return
+            token = self._begin_fetch(ref)
             try:
                 self._ctx.host.notify("Loading variables…", timeout=1.0)
-                self._cache[ref] = await manager.get_variables(ref)
+                page = await self._get_variable_page(manager, ref, start=0, count=self._page_size)
+                if not self._is_current_fetch(ref, token):
+                    return
+                self._pages[ref] = page
+                self._cache[ref] = page.variables
+                self._visible_counts[ref] = min(len(page.variables), self._page_size)
             except Exception as exc:
                 self._ctx.host.notify(str(exc), timeout=2.5)
                 return
+            finally:
+                self._finish_fetch(ref, token)
 
         self._expanded.add(ref)
         self._rebuild()
 
+    @on(DataTable.RowSelected)
+    async def _on_row_selected(self, event: DataTable.RowSelected) -> None:
+        if event.control is not self:
+            return
+        await self.action_toggle_expand()
+
+    async def _load_more(self, node: _VarNode) -> None:
+        ref = node.load_more_reference
+        start = node.load_more_start
+        if ref is None or start is None:
+            return
+        current = self._cache.get(ref) or ()
+        if start < len(current):
+            self._visible_counts[ref] = min(start + self._page_size, len(current))
+            self._rebuild()
+            return
+        if ref in self._fetching:
+            return
+        manager = _get_manager(self._ctx)
+        if not isinstance(manager, VariablesManager):
+            self._ctx.host.notify(
+                "Variable expansion is not supported by this session.",
+                timeout=2.5,
+            )
+            return
+        token = self._begin_fetch(ref)
+        try:
+            self._ctx.host.notify("Loading variables…", timeout=1.0)
+            page = await self._get_variable_page(manager, ref, start=start, count=self._page_size)
+            if not self._is_current_fetch(ref, token) or ref not in self._expanded:
+                return
+        except Exception as exc:
+            self._ctx.host.notify(str(exc), timeout=2.5)
+            return
+        finally:
+            self._finish_fetch(ref, token)
+        current = self._cache.get(ref) or ()
+        self._cache[ref] = (*current, *page.variables)
+        self._pages[ref] = page
+        self._visible_counts[ref] = len(self._cache[ref])
+        self._rebuild()
+
+    async def _get_variable_page(
+        self,
+        manager: VariablesManager,
+        variables_reference: int,
+        *,
+        start: int,
+        count: int,
+    ) -> VariablePage:
+        try:
+            get_page = getattr(manager, "get_variables_page")  # noqa: B009
+        except AttributeError:
+            get_page = None
+        if callable(get_page):
+            typed_get_page = cast(
+                Callable[..., Awaitable[VariablePage]],
+                get_page,
+            )
+            return await typed_get_page(variables_reference, start=start, count=count)
+        variables = await manager.get_variables(variables_reference)
+        return VariablePage(variables=variables)
+
     def action_copy_value(self) -> None:
         node = self._selected_node()
-        if node is None:
+        if node is None or node.is_load_more:
             return
         self.app.copy_to_clipboard(node.value)
         self._ctx.host.notify("Copied value.", timeout=1.2)
+
+    def action_focus_filter(self) -> None:
+        panel = self.parent
+        focus_filter = getattr(panel, "focus_filter", None)
+        if callable(focus_filter):
+            focus_filter()
+
+    async def action_edit_value(self) -> None:
+        node = self._selected_node()
+        if node is None or node.is_load_more:
+            return
+        if node.parent_reference is None:
+            self._ctx.host.notify("Root variables cannot be edited here.", timeout=2.5)
+            return
+        self.app.push_screen(VariableEditDialog(table=self, node=node))
+
+    async def edit_selected_value(self, value: str, *, node: _VarNode | None = None) -> bool:
+        node = node or self._selected_node()
+        if node is None or node.is_load_more:
+            return False
+        parent_ref = node.parent_reference
+        if parent_ref is None:
+            self._ctx.host.notify("Root variables cannot be edited here.", timeout=2.5)
+            return False
+        manager = _get_manager(self._ctx)
+        if not isinstance(manager, SetVariableManager):
+            self._ctx.host.notify("Variable editing is not supported by this session.", timeout=2.5)
+            return False
+        try:
+            updated = await manager.set_variable(parent_ref, node.name, value)
+        except Exception as exc:
+            self._ctx.host.notify(str(exc), timeout=2.5)
+            return False
+        children = self._cache.get(parent_ref) or ()
+        updated_children = tuple(
+            updated if child.name == node.name else child for child in children
+        )
+        if parent_ref == self._root_parent_reference:
+            self._root = tuple(
+                updated if child.name == node.name else child for child in self._root
+            )
+        else:
+            self._cache[parent_ref] = updated_children
+        if node.variables_reference > 0:
+            self._cache.pop(node.variables_reference, None)
+            self._pages.pop(node.variables_reference, None)
+            self._visible_counts.pop(node.variables_reference, None)
+            self._expanded.discard(node.variables_reference)
+        self._ctx.host.notify(f"Updated {node.name}.", timeout=1.2)
+        self._rebuild()
+        return True
+
+    def _clear_variable_tree(self, ref: int) -> None:
+        children = self._cache.pop(ref, None) or ()
+        self._expanded.discard(ref)
+        self._pages.pop(ref, None)
+        self._visible_counts.pop(ref, None)
+        self._fetching.pop(ref, None)
+        for child in children:
+            if child.variables_reference > 0:
+                self._clear_variable_tree(child.variables_reference)
+
+    def _begin_fetch(self, ref: int) -> int:
+        self._next_fetch_token += 1
+        token = self._next_fetch_token
+        self._fetching[ref] = token
+        return token
+
+    def _is_current_fetch(self, ref: int, token: int) -> bool:
+        return self._fetching.get(ref) == token
+
+    def _finish_fetch(self, ref: int, token: int) -> None:
+        if self._fetching.get(ref) == token:
+            self._fetching.pop(ref, None)
 
     def _selected_node(self) -> _VarNode | None:
         row = self.cursor_row
@@ -732,13 +929,21 @@ class LocalsTable(DataTable[str]):
         return self._flat[row]
 
     def _rebuild(self) -> None:
+        selected = self._selected_node()
+        selected_key = _node_key(selected) if selected is not None else None
+        previous_row = self.cursor_row
         self.clear(columns=False)
         self._flat = []
         if not self._root:
             self.add_row("No locals.", "", "")
             return
 
-        def add_vars(vars_: tuple[VariableInfo, ...], *, depth: int) -> None:
+        def add_vars(
+            vars_: tuple[VariableInfo, ...],
+            *,
+            depth: int,
+            parent_reference: int | None,
+        ) -> None:
             for v in vars_:
                 ref = v.variables_reference
                 arrow = " "
@@ -746,21 +951,165 @@ class LocalsTable(DataTable[str]):
                     arrow = "▾" if ref in self._expanded else "▸"
                 name = f"{'  ' * depth}{arrow} {v.name}"
                 vtype = v.type or ""
-                self.add_row(name, vtype, v.value)
-                self._flat.append(
-                    _VarNode(
-                        name=v.name,
-                        value=v.value,
-                        type=v.type,
-                        variables_reference=ref,
-                        depth=depth,
-                    )
+                node = _VarNode(
+                    name=v.name,
+                    value=v.value,
+                    type=v.type,
+                    variables_reference=ref,
+                    depth=depth,
+                    parent_reference=parent_reference,
                 )
+                self._add_node(node, name, vtype, v.value)
                 if ref in self._expanded:
-                    children = self._cache.get(ref) or ()
-                    add_vars(children, depth=depth + 1)
+                    add_expanded_children(ref, depth=depth + 1)
 
-        add_vars(self._root, depth=0)
+        def add_expanded_children(ref: int, *, depth: int) -> None:
+            children = self._cache.get(ref) or ()
+            visible_count = self._visible_counts.get(ref, len(children))
+            visible_children = children if self._filter else children[:visible_count]
+            add_vars(visible_children, depth=depth, parent_reference=ref)
+            page = self._pages.get(ref)
+            page_next_start = page.next_start if page is not None else None
+            next_start = visible_count if visible_count < len(children) else page_next_start
+            if next_start is not None:
+                total = page.total if page is not None else None
+                total_label = total or (len(children) if visible_count < len(children) else "?")
+                load_node = _VarNode(
+                    name="Load more...",
+                    value=f"{next_start}/{total_label} loaded",
+                    type="",
+                    variables_reference=0,
+                    depth=depth,
+                    load_more_reference=ref,
+                    load_more_start=next_start,
+                )
+                self._add_node(
+                    load_node,
+                    f"{'  ' * depth}… Load more...",
+                    "",
+                    load_node.value,
+                )
+
+        add_vars(self._root, depth=0, parent_reference=self._root_parent_reference)
+        self._restore_cursor(selected_key, previous_row)
+
+    def _add_node(self, node: _VarNode, name: str, type_: str, value: str) -> None:
+        if self._filter and not node.is_load_more and not _node_matches_filter(node, self._filter):
+            return
+        self.add_row(name, type_, value)
+        self._flat.append(node)
+
+    def _restore_cursor(
+        self,
+        selected_key: tuple[object, ...] | None,
+        previous_row: int | None,
+    ) -> None:
+        if not self._flat:
+            return
+        if selected_key is not None:
+            for index, node in enumerate(self._flat):
+                if _node_key(node) == selected_key:
+                    self.move_cursor(row=index)
+                    return
+        if previous_row is not None:
+            self.move_cursor(row=min(max(previous_row, 0), len(self._flat) - 1))
+
+
+def _node_key(node: _VarNode) -> tuple[object, ...]:
+    return (
+        node.name,
+        node.depth,
+        node.parent_reference,
+        node.variables_reference,
+        node.load_more_reference,
+        node.load_more_start,
+    )
+
+
+def _node_matches_filter(node: _VarNode, query: str) -> bool:
+    hay = " ".join(part for part in (node.name, node.type or "", node.value) if part)
+    return query in hay.casefold()
+
+
+def _changed_variable_references(
+    old: tuple[VariableInfo, ...], new: tuple[VariableInfo, ...]
+) -> tuple[int, ...]:
+    old_by_name = {v.name: v for v in old}
+    changed: list[int] = []
+    for current in new:
+        previous = old_by_name.get(current.name)
+        if previous is None:
+            continue
+        if previous != current and previous.variables_reference > 0:
+            changed.append(previous.variables_reference)
+    return tuple(changed)
+
+
+def _locals_page_size() -> int:
+    raw = os.environ.get("YATHAAVAT_VARIABLE_PAGE_SIZE", "")
+    try:
+        parsed = int(raw)
+    except ValueError:
+        return 50
+    return min(max(parsed, 1), 500)
+
+
+class VariableEditDialog(ModalScreen[None]):
+    BINDINGS: ClassVar[list[BindingType]] = [("escape", "app.pop_screen", "Close")]
+
+    def __init__(self, *, table: LocalsTable, node: _VarNode) -> None:
+        super().__init__()
+        self._table = table
+        self._node = node
+        self._submitting = False
+
+    def compose(self) -> ComposeResult:
+        yield Container(
+            Static(f"Edit {self._node.name}", id="var_title"),
+            Input(value=self._node.value, id="var_input"),
+            Static("Enter update • Esc close", id="var_hint"),
+            id="var_root",
+        )
+
+    def on_mount(self) -> None:
+        input_ = self.query_one("#var_input", Input)
+        input_.focus()
+        input_.action_select_all()
+
+    @on(Input.Submitted, "#var_input")
+    async def _on_submit(self, event: Input.Submitted) -> None:
+        if self._submitting:
+            return
+        self._submitting = True
+        updated = await self._table.edit_selected_value(event.value, node=self._node)
+        if updated:
+            self.app.pop_screen()
+            return
+        self._submitting = False
+        self.query_one("#var_input", Input).focus()
+
+
+class _LocalsFilterInput(Input):
+    BINDINGS: ClassVar[list[BindingType]] = [
+        Binding("enter", "focus_table", "Focus locals", show=False),
+        Binding("escape", "clear_filter", "Clear", show=False),
+    ]
+
+    def action_focus_table(self) -> None:
+        panel = self.parent
+        focus_table = getattr(panel, "focus_table", None)
+        if callable(focus_table):
+            focus_table()
+
+    def action_clear_filter(self) -> None:
+        self.value = ""
+        self.action_focus_table()
+
+    def on_input_changed(self, event: Input.Changed) -> None:
+        panel = self.parent
+        apply_filter = getattr(panel, "apply_filter", None)
+        if callable(apply_filter):
+            apply_filter(event.value)
 
 
 class LocalsPanel(Container):
@@ -768,9 +1117,10 @@ class LocalsPanel(Container):
         super().__init__()
         self._store = _get_store(ctx)
         self._unsubscribe: Callable[[], None] | None = None
-        self._table = LocalsTable(ctx=ctx)
+        self._table = LocalsTable(ctx=ctx, page_size=_locals_page_size())
 
     def compose(self) -> ComposeResult:
+        yield _LocalsFilterInput(placeholder="filter locals…", id="locals_filter")
         yield self._table
 
     def on_mount(self) -> None:
@@ -781,7 +1131,16 @@ class LocalsPanel(Container):
             self._unsubscribe()
 
     def _on_snapshot(self, snapshot: SessionSnapshot) -> None:
-        self._table.set_root(snapshot.locals)
+        self._table.set_root(snapshot.locals, parent_reference=snapshot.locals_reference)
+
+    def apply_filter(self, value: str) -> None:
+        self._table.set_filter(value)
+
+    def focus_table(self) -> None:
+        self._table.focus()
+
+    def focus_filter(self) -> None:
+        self.query_one("#locals_filter", Input).focus()
 
 
 class BreakpointsTable(DataTable[str]):

@@ -16,6 +16,14 @@ class UiHost(Protocol):
 
     def open_source_find(self) -> None: ...
 
+    def focus_locals(self) -> None: ...
+
+    def focus_locals_filter(self) -> None: ...
+
+    def expand_selected_local(self) -> None: ...
+
+    def edit_selected_local(self) -> None: ...
+
     def push_screen(self, screen: Screen[Any]) -> None: ...
 
     def pop_screen(self) -> None: ...
@@ -33,6 +41,18 @@ class NullUiHost(UiHost):
         return
 
     def open_source_find(self) -> None:
+        return
+
+    def focus_locals(self) -> None:
+        return
+
+    def focus_locals_filter(self) -> None:
+        return
+
+    def expand_selected_local(self) -> None:
+        return
+
+    def edit_selected_local(self) -> None:
         return
 
     def push_screen(self, screen: Screen[Any]) -> None:

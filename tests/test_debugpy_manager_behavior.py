@@ -11,6 +11,7 @@ from yathaavat.core import (
     SESSION_MANAGER,
     SESSION_STORE,
     BreakpointInfo,
+    DapCapabilities,
     FrameInfo,
     SessionState,
     SessionStore,
@@ -18,6 +19,7 @@ from yathaavat.core import (
     TaskGraphInfo,
     ThreadInfo,
     VariableInfo,
+    VariablePage,
     WatchInfo,
 )
 from yathaavat.core.dap import DapRequestError
@@ -27,6 +29,7 @@ from yathaavat.plugins.debugpy import (
     _as_list,
     _body,
     _BreakpointConfig,
+    _initialize_arguments,
     _is_pyruntime_lookup_failure,
     _is_user_path,
     _parse_variables,
@@ -67,11 +70,31 @@ def test_response_helpers_ignore_malformed_payloads() -> None:
     assert _as_list("bad") == []
     assert _parse_variables(
         [
-            {"name": "x", "value": "1", "type": "int", "variablesReference": 7},
+            {
+                "name": "x",
+                "value": "1",
+                "type": "int",
+                "variablesReference": 7,
+                "indexedVariables": 3,
+            },
             {"name": "missing-value"},
             "bad",
         ]
-    ) == [VariableInfo(name="x", value="1", type="int", variables_reference=7)]
+    ) == [
+        VariableInfo(
+            name="x",
+            value="1",
+            type="int",
+            variables_reference=7,
+            indexed_variables=3,
+        )
+    ]
+
+
+def test_initialize_arguments_advertise_variable_paging() -> None:
+    args = _initialize_arguments()
+
+    assert args["supportsVariablePaging"] is True
 
 
 def test_pyruntime_lookup_detection_walks_exception_causes() -> None:
@@ -205,6 +228,7 @@ def test_refresh_threads_frames_and_locals_choose_user_frame() -> None:
         assert snap.selected_frame_id == 11
         assert snap.source_path == source
         assert snap.locals == (VariableInfo(name="answer", value="42", type="int"),)
+        assert snap.locals_reference == 99
 
     asyncio.run(run())
 
@@ -519,6 +543,176 @@ def test_get_variables_and_quick_variables_handle_invalid_refs_and_failures() ->
     asyncio.run(run())
 
 
+def test_adapter_capabilities_are_stored_from_initialize_response() -> None:
+    store = SessionStore()
+    manager = _manager(store)
+
+    manager._store_capabilities(
+        {
+            "body": {
+                "supportsSetVariable": True,
+                "supportsSetExpression": False,
+            }
+        }
+    )
+
+    assert store.snapshot().capabilities == DapCapabilities(
+        supports_variable_paging=True,
+        supports_set_variable=True,
+        supports_set_expression=False,
+    )
+
+
+def test_get_variables_page_uses_start_count_and_filter() -> None:
+    async def run() -> None:
+        store = SessionStore()
+        store.update(capabilities=DapCapabilities(supports_variable_paging=True))
+        manager = _manager(store)
+        dap = _TestDap(
+            {
+                "variables": [
+                    {
+                        "body": {
+                            "variables": [
+                                {
+                                    "name": "[50]",
+                                    "value": "item-50",
+                                    "type": "str",
+                                    "variablesReference": 0,
+                                }
+                            ]
+                        }
+                    }
+                ]
+            }
+        )
+        _set_dap(manager, dap)
+
+        page = await manager.get_variables_page(7, start=50, count=25, filter="indexed")
+
+        assert page == VariablePage(
+            variables=(VariableInfo(name="[50]", value="item-50", type="str"),),
+            start=50,
+            count=25,
+            filter="indexed",
+        )
+        assert dap.requests[-1] == (
+            "variables",
+            {
+                "variablesReference": 7,
+                "start": 50,
+                "count": 25,
+                "filter": "indexed",
+            },
+            None,
+        )
+
+    asyncio.run(run())
+
+
+def test_get_variables_page_uses_remembered_variable_counts() -> None:
+    async def run() -> None:
+        store = SessionStore()
+        store.update(capabilities=DapCapabilities(supports_variable_paging=True))
+        manager = _manager(store)
+        dap = _TestDap(
+            {
+                "variables": [
+                    {
+                        "body": {
+                            "variables": [
+                                {
+                                    "name": "items",
+                                    "value": "list[5]",
+                                    "variablesReference": 7,
+                                    "indexedVariables": 5,
+                                }
+                            ]
+                        }
+                    },
+                    {
+                        "body": {
+                            "variables": [
+                                {
+                                    "name": "[0]",
+                                    "value": "zero",
+                                    "variablesReference": 0,
+                                }
+                            ]
+                        }
+                    },
+                ]
+            }
+        )
+        _set_dap(manager, dap)
+
+        await manager.get_variables(99)
+        page = await manager.get_variables_page(7, start=0, count=1)
+
+        assert page.indexed_variables == 5
+        assert page.next_start == 1
+
+    asyncio.run(run())
+
+
+def test_get_variables_page_falls_back_to_full_fetch_when_paging_unsupported() -> None:
+    async def run() -> None:
+        store = SessionStore()
+        store.update(capabilities=DapCapabilities(supports_variable_paging=False))
+        manager = _manager(store)
+        dap = _TestDap({"variables": [{"body": {"variables": []}}]})
+        _set_dap(manager, dap)
+
+        await manager.get_variables_page(7, start=50, count=25, filter="indexed")
+
+        assert dap.requests[-1] == ("variables", {"variablesReference": 7}, None)
+
+    asyncio.run(run())
+
+
+def test_set_variable_uses_dap_and_updates_returned_variable() -> None:
+    async def run() -> None:
+        store = SessionStore()
+        store.update(capabilities=DapCapabilities(supports_set_variable=True))
+        manager = _manager(store)
+        dap = _TestDap(
+            {
+                "setVariable": [
+                    {
+                        "body": {
+                            "value": "43",
+                            "type": "int",
+                            "variablesReference": 0,
+                        }
+                    }
+                ]
+            }
+        )
+        _set_dap(manager, dap)
+
+        updated = await manager.set_variable(9, "answer", "43")
+
+        assert updated == VariableInfo(name="answer", value="43", type="int")
+        assert dap.requests[-1] == (
+            "setVariable",
+            {"variablesReference": 9, "name": "answer", "value": "43"},
+            None,
+        )
+
+    asyncio.run(run())
+
+
+def test_set_variable_reports_unsupported_capability() -> None:
+    async def run() -> None:
+        manager = _manager()
+        _set_dap(manager, _TestDap())
+
+        with pytest.raises(RuntimeError, match="not supported"):
+            await manager.set_variable(9, "answer", "43")
+
+    asyncio.run(run())
+
+
 def test_completion_uses_dap_results_and_running_state_skips_variable_fallback() -> None:
     async def run() -> None:
         store = SessionStore()
@@ -567,6 +761,7 @@ def test_select_frame_missing_frame_clears_source_and_refreshes_locals() -> None
         assert snap.selected_frame_id == 99
         assert snap.source_path is None
         assert snap.locals == ()
+        assert snap.locals_reference is None
 
     asyncio.run(run())
 

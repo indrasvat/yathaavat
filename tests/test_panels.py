@@ -3,9 +3,9 @@ from __future__ import annotations
 import asyncio
 from dataclasses import dataclass
 from pathlib import Path
-from typing import cast
+from typing import Any, cast
 
-from textual.widgets import DataTable, ListView, RichLog, Static, TextArea
+from textual.widgets import DataTable, Input, ListView, RichLog, Static, TextArea
 
 from tests.support import RecordingHost, RecordingManager, SingleWidgetApp, make_context
 from yathaavat.app.expression import ExpressionInput
@@ -28,6 +28,7 @@ from yathaavat.core import (
     BreakpointInfo,
     FrameInfo,
     VariableInfo,
+    VariablePage,
 )
 
 
@@ -184,7 +185,7 @@ def test_locals_panel_expands_variables_and_reports_unsupported() -> None:
             await panel._table.action_toggle_expand()
             await pilot.pause()
             assert table.row_count == 2
-            assert ("get_variables", (7,)) in manager.calls
+            assert ("get_variables_page", (7, 0, 50, None)) in manager.calls
 
     asyncio.run(run())
 
@@ -217,6 +218,545 @@ def test_locals_table_reports_unsupported_expansion_and_copies_value() -> None:
             ("Variable expansion is not supported by this session.", 2.5),
             ("Copied value.", 1.2),
         ]
+
+    asyncio.run(run())
+
+
+def test_locals_table_pages_large_variable_children() -> None:
+    async def run() -> None:
+        manager = RecordingManager(
+            variable_pages={
+                (9, 0, 2, None): VariablePage(
+                    variables=(
+                        VariableInfo(name="[0]", value="zero", type="str"),
+                        VariableInfo(name="[1]", value="one", type="str"),
+                    ),
+                    start=0,
+                    count=2,
+                    indexed_variables=5,
+                ),
+                (9, 2, 2, None): VariablePage(
+                    variables=(
+                        VariableInfo(name="[2]", value="two", type="str"),
+                        VariableInfo(name="[3]", value="three", type="str"),
+                    ),
+                    start=2,
+                    count=2,
+                    indexed_variables=5,
+                ),
+            }
+        )
+        ctx = make_context(manager=manager)
+        app = SingleWidgetApp(lambda: LocalsTable(ctx=ctx, page_size=2))
+
+        async with app.run_test() as pilot:
+            await pilot.pause()
+            table = cast(LocalsTable, app.widget)
+            table.set_root(
+                (
+                    VariableInfo(
+                        name="items",
+                        value="list[5]",
+                        type="list",
+                        variables_reference=9,
+                    ),
+                )
+            )
+            table.move_cursor(row=0)
+            await table.action_toggle_expand()
+            await pilot.pause()
+
+            assert table.row_count == 4
+            assert [node.name for node in table.visible_nodes()] == [
+                "items",
+                "[0]",
+                "[1]",
+                "Load more...",
+            ]
+            assert ("get_variables_page", (9, 0, 2, None)) in manager.calls
+
+            table.move_cursor(row=3)
+            await table.action_toggle_expand()
+            await pilot.pause()
+
+            assert table.row_count == 6
+            assert [node.name for node in table.visible_nodes()] == [
+                "items",
+                "[0]",
+                "[1]",
+                "[2]",
+                "[3]",
+                "Load more...",
+            ]
+            assert ("get_variables_page", (9, 2, 2, None)) in manager.calls
+
+    asyncio.run(run())
+
+
+def test_locals_table_chunks_full_variable_responses_locally() -> None:
+    async def run() -> None:
+        manager = RecordingManager(
+            variable_pages={
+                (9, 0, 2, None): VariablePage(
+                    variables=(
+                        VariableInfo(name="[0]", value="zero", type="str"),
+                        VariableInfo(name="[1]", value="one", type="str"),
+                        VariableInfo(name="[2]", value="two", type="str"),
+                        VariableInfo(name="[3]", value="three", type="str"),
+                        VariableInfo(name="[4]", value="four", type="str"),
+                    ),
+                    start=0,
+                    count=None,
+                ),
+            }
+        )
+        ctx = make_context(manager=manager)
+        app = SingleWidgetApp(lambda: LocalsTable(ctx=ctx, page_size=2))
+
+        async with app.run_test() as pilot:
+            await pilot.pause()
+            table = cast(LocalsTable, app.widget)
+            table.set_root(
+                (
+                    VariableInfo(
+                        name="items",
+                        value="list[5]",
+                        type="list",
+                        variables_reference=9,
+                    ),
+                )
+            )
+            table.move_cursor(row=0)
+            await table.action_toggle_expand()
+            await pilot.pause()
+
+            assert [node.name for node in table.visible_nodes()] == [
+                "items",
+                "[0]",
+                "[1]",
+                "Load more...",
+            ]
+
+            table.move_cursor(row=3)
+            await table.action_toggle_expand()
+            await pilot.pause()
+
+            assert [node.name for node in table.visible_nodes()] == [
+                "items",
+                "[0]",
+                "[1]",
+                "[2]",
+                "[3]",
+                "Load more...",
+            ]
+            assert manager.calls.count(("get_variables_page", (9, 0, 2, None))) == 1
+
+            table.move_cursor(row=5)
+            await table.action_toggle_expand()
+            await pilot.pause()
+
+            assert [node.name for node in table.visible_nodes()] == [
+                "items",
+                "[0]",
+                "[1]",
+                "[2]",
+                "[3]",
+                "[4]",
+            ]
+            assert manager.calls.count(("get_variables_page", (9, 0, 2, None))) == 1
+
+    asyncio.run(run())
+
+
+def test_locals_table_falls_back_to_get_variables_for_legacy_backends() -> None:
+    class LegacyManager(RecordingManager):
+        def __getattribute__(self, name: str) -> object:
+            if name == "get_variables_page":
+                raise AttributeError(name)
+            return super().__getattribute__(name)
+
+    async def run() -> None:
+        manager = LegacyManager(
+            variables={
+                9: (
+                    VariableInfo(name="[0]", value="zero", type="str"),
+                    VariableInfo(name="[1]", value="one", type="str"),
+                    VariableInfo(name="[2]", value="two", type="str"),
+                )
+            }
+        )
+        ctx = make_context(manager=manager)
+        app = SingleWidgetApp(lambda: LocalsTable(ctx=ctx, page_size=2))
+
+        async with app.run_test() as pilot:
+            await pilot.pause()
+            table = cast(LocalsTable, app.widget)
+            table.set_root((VariableInfo(name="items", value="list[3]", variables_reference=9),))
+            table.move_cursor(row=0)
+            await table.action_toggle_expand()
+            await pilot.pause()
+
+            assert ("get_variables", (9,)) in manager.calls
+            assert [node.name for node in table.visible_nodes()] == [
+                "items",
+                "[0]",
+                "[1]",
+                "Load more...",
+            ]
+
+    asyncio.run(run())
+
+
+def test_locals_table_keeps_load_more_visible_while_filtered() -> None:
+    async def run() -> None:
+        manager = RecordingManager(
+            variable_pages={
+                (9, 0, 2, None): VariablePage(
+                    variables=(
+                        VariableInfo(name="[0]", value="zero", type="str"),
+                        VariableInfo(name="[1]", value="one", type="str"),
+                        VariableInfo(name="[2]", value="two", type="str"),
+                    ),
+                    start=0,
+                    count=None,
+                ),
+            }
+        )
+        ctx = make_context(manager=manager)
+        app = SingleWidgetApp(lambda: LocalsTable(ctx=ctx, page_size=2))
+
+        async with app.run_test() as pilot:
+            await pilot.pause()
+            table = cast(LocalsTable, app.widget)
+            table.set_root((VariableInfo(name="items", value="list[3]", variables_reference=9),))
+            table.move_cursor(row=0)
+            await table.action_toggle_expand()
+            table.set_filter("not-present")
+            await pilot.pause()
+
+            assert [node.name for node in table.visible_nodes()] == ["Load more..."]
+
+    asyncio.run(run())
+
+
+def test_locals_table_ignores_obsolete_variable_fetches() -> None:
+    class SlowManager(RecordingManager):
+        def __init__(self) -> None:
+            super().__init__()
+            self.started = asyncio.Event()
+            self.release = asyncio.Event()
+
+        async def get_variables_page(
+            self,
+            variables_reference: int,
+            *,
+            start: int | None = None,
+            count: int | None = None,
+            filter: str | None = None,
+        ) -> VariablePage:
+            self._record("get_variables_page", variables_reference, start, count, filter)
+            self.started.set()
+            await self.release.wait()
+            return VariablePage(
+                variables=(VariableInfo(name="stale", value="old", type="str"),),
+                start=start,
+                count=count,
+                indexed_variables=1,
+            )
+
+    async def run() -> None:
+        manager = SlowManager()
+        ctx = make_context(manager=manager)
+        app = SingleWidgetApp(lambda: LocalsTable(ctx=ctx, page_size=2))
+
+        async with app.run_test() as pilot:
+            await pilot.pause()
+            table = cast(LocalsTable, app.widget)
+            table.set_root((VariableInfo(name="old", value="{}", variables_reference=9),))
+            table.move_cursor(row=0)
+            task = asyncio.create_task(table.action_toggle_expand())
+            await manager.started.wait()
+
+            table.set_root((VariableInfo(name="new", value="{}", variables_reference=10),))
+            manager.release.set()
+            await task
+            await pilot.pause()
+
+            assert [node.name for node in table.visible_nodes()] == ["new"]
+
+    asyncio.run(run())
+
+
+def test_locals_table_pages_nested_variable_children() -> None:
+    async def run() -> None:
+        manager = RecordingManager(
+            variable_pages={
+                (9, 0, 2, None): VariablePage(
+                    variables=(
+                        VariableInfo(name="nested", value="list[3]", variables_reference=11),
+                    ),
+                    start=0,
+                    count=2,
+                    named_variables=1,
+                ),
+                (11, 0, 2, None): VariablePage(
+                    variables=(
+                        VariableInfo(name="[0]", value="zero", type="str"),
+                        VariableInfo(name="[1]", value="one", type="str"),
+                    ),
+                    start=0,
+                    count=2,
+                    indexed_variables=3,
+                ),
+                (11, 2, 2, None): VariablePage(
+                    variables=(VariableInfo(name="[2]", value="two", type="str"),),
+                    start=2,
+                    count=2,
+                    indexed_variables=3,
+                ),
+            }
+        )
+        ctx = make_context(manager=manager)
+        app = SingleWidgetApp(lambda: LocalsTable(ctx=ctx, page_size=2))
+
+        async with app.run_test() as pilot:
+            await pilot.pause()
+            table = cast(LocalsTable, app.widget)
+            table.set_root(
+                (
+                    VariableInfo(
+                        name="outer",
+                        value="{...}",
+                        type="dict",
+                        variables_reference=9,
+                    ),
+                )
+            )
+            table.move_cursor(row=0)
+            await table.action_toggle_expand()
+            table.move_cursor(row=1)
+            await table.action_toggle_expand()
+            await pilot.pause()
+
+            assert [node.name for node in table.visible_nodes()] == [
+                "outer",
+                "nested",
+                "[0]",
+                "[1]",
+                "Load more...",
+            ]
+
+            table.move_cursor(row=4)
+            await table.action_toggle_expand()
+            await pilot.pause()
+
+            assert [node.name for node in table.visible_nodes()] == [
+                "outer",
+                "nested",
+                "[0]",
+                "[1]",
+                "[2]",
+            ]
+
+    asyncio.run(run())
+
+
+def test_locals_table_filters_visible_variables_without_resetting_expansion() -> None:
+    async def run() -> None:
+        manager = RecordingManager(
+            variable_pages={
+                (9, 0, 3, None): VariablePage(
+                    variables=(
+                        VariableInfo(name="alpha", value="1", type="int"),
+                        VariableInfo(name="beta", value="2", type="int"),
+                        VariableInfo(name="gamma", value="3", type="int"),
+                    ),
+                    start=0,
+                    count=3,
+                    named_variables=3,
+                ),
+            }
+        )
+        ctx = make_context(manager=manager)
+        app = SingleWidgetApp(lambda: LocalsTable(ctx=ctx, page_size=3))
+
+        async with app.run_test() as pilot:
+            await pilot.pause()
+            table = cast(LocalsTable, app.widget)
+            table.set_root(
+                (
+                    VariableInfo(
+                        name="payload",
+                        value="{...}",
+                        type="dict",
+                        variables_reference=9,
+                    ),
+                )
+            )
+            table.move_cursor(row=0)
+            await table.action_toggle_expand()
+            table.set_filter("gam")
+            await pilot.pause()
+
+            assert [node.name for node in table.visible_nodes()] == ["gamma"]
+
+            table.set_filter("")
+            await pilot.pause()
+            assert [node.name for node in table.visible_nodes()] == [
+                "payload",
+                "alpha",
+                "beta",
+                "gamma",
+            ]
+
+    asyncio.run(run())
+
+
+def test_locals_table_edits_selected_variable() -> None:
+    async def run() -> None:
+        manager = RecordingManager(
+            variable_pages={
+                (9, 0, 2, None): VariablePage(
+                    variables=(VariableInfo(name="answer", value="42", type="int"),),
+                    start=0,
+                    count=2,
+                    named_variables=1,
+                ),
+            }
+        )
+        ctx = make_context(manager=manager)
+        app = SingleWidgetApp(lambda: LocalsTable(ctx=ctx, page_size=2))
+
+        async with app.run_test() as pilot:
+            await pilot.pause()
+            table = cast(LocalsTable, app.widget)
+            table.set_root(
+                (
+                    VariableInfo(
+                        name="scope",
+                        value="{...}",
+                        type="dict",
+                        variables_reference=9,
+                    ),
+                )
+            )
+            table.move_cursor(row=0)
+            await table.action_toggle_expand()
+            table.move_cursor(row=1)
+            await table.edit_selected_value("43")
+            await pilot.pause()
+
+            assert ("set_variable", (9, "answer", "43")) in manager.calls
+            assert [node.value for node in table.visible_nodes() if node.name == "answer"] == ["43"]
+            assert table.cursor_row == 1
+
+    asyncio.run(run())
+
+
+def test_locals_table_edit_failure_returns_false_and_preserves_value() -> None:
+    async def run() -> None:
+        host = RecordingHost()
+        manager = RecordingManager(fail={"set_variable": RuntimeError("read only")})
+        ctx = make_context(host=host, manager=manager)
+        app = SingleWidgetApp(lambda: LocalsTable(ctx=ctx, page_size=2))
+
+        async with app.run_test() as pilot:
+            await pilot.pause()
+            table = cast(LocalsTable, app.widget)
+            table.set_root(
+                (VariableInfo(name="answer", value="42", type="int"),),
+                parent_reference=99,
+            )
+            table.move_cursor(row=0)
+            updated = await table.edit_selected_value("43")
+            await pilot.pause()
+
+            assert updated is False
+            assert [node.value for node in table.visible_nodes()] == ["42"]
+            assert host.notifications[-1][0] == "read only"
+
+    asyncio.run(run())
+
+
+def test_locals_table_edit_uses_original_dialog_node() -> None:
+    async def run() -> None:
+        manager = RecordingManager(
+            variable_pages={
+                (9, 0, 5, None): VariablePage(
+                    variables=(
+                        VariableInfo(name="first", value="1", type="int"),
+                        VariableInfo(name="second", value="2", type="int"),
+                    ),
+                    start=0,
+                    count=5,
+                    named_variables=2,
+                ),
+            }
+        )
+        ctx = make_context(manager=manager)
+        app = SingleWidgetApp(lambda: LocalsTable(ctx=ctx, page_size=5))
+
+        async with app.run_test() as pilot:
+            await pilot.pause()
+            table = cast(LocalsTable, app.widget)
+            table.set_root((VariableInfo(name="scope", value="{...}", variables_reference=9),))
+            table.move_cursor(row=0)
+            await table.action_toggle_expand()
+            original_node = table.visible_nodes()[1]
+            table.move_cursor(row=2)
+            updated = await table.edit_selected_value("10", node=original_node)
+            await pilot.pause()
+
+            assert updated is True
+            assert ("set_variable", (9, "first", "10")) in manager.calls
+
+    asyncio.run(run())
+
+
+def test_locals_table_edits_root_variable_with_scope_reference() -> None:
+    async def run() -> None:
+        manager = RecordingManager()
+        ctx = make_context(manager=manager)
+        app = SingleWidgetApp(lambda: LocalsTable(ctx=ctx, page_size=2))
+
+        async with app.run_test() as pilot:
+            await pilot.pause()
+            table = cast(LocalsTable, app.widget)
+            table.set_root(
+                (VariableInfo(name="answer", value="42", type="int"),),
+                parent_reference=99,
+            )
+            table.move_cursor(row=0)
+            await table.edit_selected_value("43")
+            await pilot.pause()
+
+            assert manager.calls == [("set_variable", (99, "answer", "43"))]
+            assert [node.value for node in table.visible_nodes()] == ["43"]
+
+    asyncio.run(run())
+
+
+def test_locals_filter_escape_clears_query_and_focuses_table() -> None:
+    async def run() -> None:
+        ctx = make_context()
+        store = ctx.services.get(SESSION_STORE)
+        app = SingleWidgetApp(lambda: LocalsPanel(ctx=ctx))
+
+        async with app.run_test() as pilot:
+            await pilot.pause()
+            panel = cast(LocalsPanel, app.widget)
+            store.update(locals=(VariableInfo(name="answer", value="42"),))
+            await pilot.pause()
+            filter_input = cast(Any, panel.query_one("#locals_filter", Input))
+            table = panel.query_one(LocalsTable)
+
+            filter_input.value = "answer"
+            filter_input.focus()
+            filter_input.action_clear_filter()
+            await pilot.pause()
+
+            assert filter_input.value == ""
+            assert table.has_focus
 
     asyncio.run(run())
 
@@ -318,5 +858,31 @@ def test_console_panel_evaluates_or_reports_no_session() -> None:
             failing._on_submit(ExpressionInput.Submitted(control, "explode()"))
             await pilot.pause()
             assert failing_manager.calls == [("evaluate", ("explode()",))]
+
+    asyncio.run(run())
+
+
+def test_locals_table_enter_key_press_toggles_expand() -> None:
+    async def run() -> None:
+        manager = RecordingManager(
+            variables={7: (VariableInfo(name="child", value="2", type="int"),)}
+        )
+        ctx = make_context(manager=manager)
+        app = SingleWidgetApp(lambda: LocalsTable(ctx=ctx))
+        async with app.run_test() as pilot:
+            await pilot.pause()
+            table = cast(LocalsTable, app.widget)
+            table.set_root(
+                (VariableInfo(name="root", value="{...}", type="dict", variables_reference=7),)
+            )
+            table.move_cursor(row=0)
+            table.focus()
+            await pilot.press("enter")
+            await pilot.pause()
+            assert table.row_count == 2
+
+            await pilot.press("enter")
+            await pilot.pause()
+            assert table.row_count == 1
 
     asyncio.run(run())

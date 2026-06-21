@@ -26,6 +26,7 @@ from yathaavat.core import (
     Command,
     CommandSpec,
     CompletionItem,
+    DapCapabilities,
     ExceptionInfo,
     FrameInfo,
     Plugin,
@@ -36,6 +37,7 @@ from yathaavat.core import (
     ThreadInfo,
     UiHost,
     VariableInfo,
+    VariablePage,
     WatchInfo,
 )
 from yathaavat.core.asyncio_tasks import (
@@ -78,15 +80,41 @@ def _parse_variables(items: list[object]) -> list[VariableInfo]:
         if not isinstance(name, str) or not isinstance(value, str):
             continue
         vtype = item.get("type")
+        indexed = item.get("indexedVariables")
+        named = item.get("namedVariables")
         variables.append(
             VariableInfo(
                 name=name,
                 value=value,
                 type=vtype if isinstance(vtype, str) else None,
                 variables_reference=int(item.get("variablesReference") or 0),
+                indexed_variables=indexed if isinstance(indexed, int) else None,
+                named_variables=named if isinstance(named, int) else None,
             )
         )
     return variables
+
+
+def _initialize_arguments() -> dict[str, object]:
+    return {
+        "clientID": "yathaavat",
+        "adapterID": "python",
+        "pathFormat": "path",
+        "linesStartAt1": True,
+        "columnsStartAt1": True,
+        "supportsCompletionsRequest": True,
+        "supportsVariableType": True,
+        "supportsVariablePaging": True,
+    }
+
+
+def _parse_capabilities(response: dict[str, object]) -> DapCapabilities:
+    body = _body(response)
+    return DapCapabilities(
+        supports_variable_paging=True,
+        supports_set_variable=body.get("supportsSetVariable") is True,
+        supports_set_expression=body.get("supportsSetExpression") is True,
+    )
 
 
 def _infer_completion_span(text: str, cursor: int) -> tuple[int, int]:
@@ -198,6 +226,7 @@ class DebugpySessionManager(SessionManager):
     _launch_output_task: asyncio.Task[None] | None = None
     _capture_launch_output: bool = False
     _auto_resume_pending: bool = False
+    _variable_counts: dict[int, tuple[int | None, int | None]] = field(default_factory=dict)
 
     async def connect(self, host: str, port: int) -> None:
         await self.disconnect()
@@ -215,19 +244,11 @@ class DebugpySessionManager(SessionManager):
         self._dap.start()
 
         try:
-            await self._dap.request(
+            init_resp = await self._dap.request(
                 "initialize",
-                {
-                    "clientID": "yathaavat",
-                    "adapterID": "python",
-                    "pathFormat": "path",
-                    "linesStartAt1": True,
-                    "columnsStartAt1": True,
-                    "supportsCompletionsRequest": True,
-                    "supportsVariableType": True,
-                    "supportsVariablePaging": True,
-                },
+                _initialize_arguments(),
             )
+            self._store_capabilities(init_resp)
             attach_task = asyncio.create_task(
                 self._dap.request(
                     "attach",
@@ -409,8 +430,10 @@ class DebugpySessionManager(SessionManager):
             state=SessionState.RUNNING,
             frames=(),
             locals=(),
+            locals_reference=None,
             selected_frame_id=None,
         )
+        self._variable_counts.clear()
 
     async def pause(self) -> None:
         dap = self._require_dap()
@@ -575,6 +598,9 @@ class DebugpySessionManager(SessionManager):
         resp = await dap.request("evaluate", args)
         return str(_body(resp).get("result") or "")
 
+    def _store_capabilities(self, response: dict[str, object]) -> None:
+        self.store.update(capabilities=_parse_capabilities(response))
+
     async def get_exception_info(self, thread_id: int) -> ExceptionInfo | None:
         dap = self._require_dap()
         try:
@@ -708,14 +734,104 @@ class DebugpySessionManager(SessionManager):
             )
         except Exception:
             return ()
-        return tuple(_parse_variables(_as_list(_body(resp).get("variables"))))
+        variables = tuple(_parse_variables(_as_list(_body(resp).get("variables"))))
+        self._remember_variable_counts(variables)
+        return variables
 
     async def get_variables(self, variables_reference: int) -> tuple[VariableInfo, ...]:
         if variables_reference <= 0:
             return ()
         dap = self._require_dap()
         resp = await dap.request("variables", {"variablesReference": variables_reference})
-        return tuple(_parse_variables(_as_list(_body(resp).get("variables"))))
+        variables = tuple(_parse_variables(_as_list(_body(resp).get("variables"))))
+        self._remember_variable_counts(variables)
+        return variables
+
+    async def get_variables_page(
+        self,
+        variables_reference: int,
+        *,
+        start: int | None = None,
+        count: int | None = None,
+        filter: str | None = None,
+    ) -> VariablePage:
+        if variables_reference <= 0:
+            return VariablePage(variables=(), start=start, count=count, filter=filter)
+        dap = self._require_dap()
+        args: dict[str, object] = {"variablesReference": variables_reference}
+        requested_start = start
+        requested_count = count
+        requested_filter = filter
+        if self.store.snapshot().capabilities.supports_variable_paging:
+            if start is not None:
+                args["start"] = start
+            if count is not None:
+                args["count"] = count
+            if filter is not None:
+                args["filter"] = filter
+        else:
+            requested_start = None
+            requested_count = None
+            requested_filter = None
+
+        resp = await dap.request("variables", args)
+        body = _body(resp)
+        variables = tuple(_parse_variables(_as_list(body.get("variables"))))
+        self._remember_variable_counts(variables)
+        indexed, named = self._variable_counts.get(variables_reference, (None, None))
+        return VariablePage(
+            variables=variables,
+            start=requested_start,
+            count=requested_count,
+            filter=requested_filter,
+            indexed_variables=indexed,
+            named_variables=named,
+        )
+
+    async def set_variable(
+        self,
+        variables_reference: int,
+        name: str,
+        value: str,
+    ) -> VariableInfo:
+        if variables_reference <= 0:
+            raise ValueError("Invalid variables reference")
+        if not self.store.snapshot().capabilities.supports_set_variable:
+            raise RuntimeError("Setting variables is not supported by this backend.")
+        dap = self._require_dap()
+        resp = await dap.request(
+            "setVariable",
+            {"variablesReference": variables_reference, "name": name, "value": value},
+        )
+        body = _body(resp)
+        result = body.get("value")
+        vtype = body.get("type")
+        ref = body.get("variablesReference")
+        indexed = body.get("indexedVariables")
+        named = body.get("namedVariables")
+        variables_reference = ref if isinstance(ref, int) else 0
+        if variables_reference > 0:
+            self._variable_counts[variables_reference] = (
+                indexed if isinstance(indexed, int) else None,
+                named if isinstance(named, int) else None,
+            )
+        return VariableInfo(
+            name=name,
+            value=str(result) if isinstance(result, str) else "",
+            type=vtype if isinstance(vtype, str) else None,
+            variables_reference=variables_reference,
+            indexed_variables=indexed if isinstance(indexed, int) else None,
+            named_variables=named if isinstance(named, int) else None,
+        )
+
+    def _remember_variable_counts(self, variables: tuple[VariableInfo, ...]) -> None:
+        for variable in variables:
+            ref = variable.variables_reference
+            if ref <= 0:
+                continue
+            if variable.indexed_variables is None and variable.named_variables is None:
+                continue
+            self._variable_counts[ref] = (variable.indexed_variables, variable.named_variables)
 
     async def toggle_breakpoint(self, path: str, line: int) -> None:
         path = str(Path(path).expanduser().resolve())
@@ -867,6 +983,7 @@ class DebugpySessionManager(SessionManager):
         self._auto_resume_pending = False
         self._run_to_cursor_target = None
         self._run_to_cursor_added = False
+        self._variable_counts.clear()
         snap = self.store.snapshot()
         reset_watches = tuple(WatchInfo(expression=w.expression) for w in snap.watches)
         queued_breakpoints = tuple(
@@ -900,6 +1017,7 @@ class DebugpySessionManager(SessionManager):
             stop_description=None,
             exception_info=None,
             locals=(),
+            locals_reference=None,
             watches=reset_watches,
             breakpoints=queued_breakpoints,
             task_graph=None,
@@ -926,6 +1044,7 @@ class DebugpySessionManager(SessionManager):
                     state=SessionState.RUNNING,
                     frames=(),
                     locals=(),
+                    locals_reference=None,
                     selected_frame_id=None,
                     stop_reason=None,
                     stop_description=None,
@@ -933,6 +1052,7 @@ class DebugpySessionManager(SessionManager):
                     task_graph=None,
                     selected_task_id=None,
                 )
+                self._variable_counts.clear()
             case "stopped":
                 reason = body.get("reason")
                 description = body.get("description")
@@ -1092,6 +1212,8 @@ class DebugpySessionManager(SessionManager):
         scopes_resp = await dap.request("scopes", {"frameId": frame_id})
         scopes = _as_list(_body(scopes_resp).get("scopes"))
         locals_ref: int | None = None
+        indexed_count: int | None = None
+        named_count: int | None = None
         for scope in scopes:
             if not isinstance(scope, dict):
                 continue
@@ -1099,14 +1221,22 @@ class DebugpySessionManager(SessionManager):
             ref = scope.get("variablesReference")
             if isinstance(name, str) and name.lower() == "locals" and isinstance(ref, int):
                 locals_ref = ref
+                indexed = scope.get("indexedVariables")
+                named = scope.get("namedVariables")
+                indexed_count = indexed if isinstance(indexed, int) else None
+                named_count = named if isinstance(named, int) else None
                 break
         if locals_ref is None:
-            self.store.update(locals=())
+            self.store.update(locals=(), locals_reference=None)
             return
 
+        self._variable_counts[locals_ref] = (indexed_count, named_count)
         vars_resp = await dap.request("variables", {"variablesReference": locals_ref})
+        variables = tuple(_parse_variables(_as_list(_body(vars_resp).get("variables"))))
+        self._remember_variable_counts(variables)
         self.store.update(
-            locals=tuple(_parse_variables(_as_list(_body(vars_resp).get("variables"))))
+            locals=variables,
+            locals_reference=locals_ref,
         )
 
     async def _sync_all_breakpoints(self) -> None:
