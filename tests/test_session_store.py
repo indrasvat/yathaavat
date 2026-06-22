@@ -3,6 +3,7 @@ from __future__ import annotations
 from typing import cast
 
 from yathaavat.core.session import (
+    ScopeInfo,
     SessionSnapshot,
     SessionState,
     SessionStore,
@@ -55,3 +56,19 @@ def test_variable_page_next_start_requires_paging_arguments() -> None:
         indexed_variables=2,
     )
     assert paged_response.next_start == 1
+
+
+def test_scope_info_carries_scope_metadata_and_loaded_variables() -> None:
+    scope = ScopeInfo(
+        name="Globals",
+        variables_reference=12,
+        expensive=True,
+        named_variables=2,
+        variables=(VariableInfo(name="CONFIG", value="{}"),),
+    )
+
+    assert scope.name == "Globals"
+    assert scope.variables_reference == 12
+    assert scope.expensive is True
+    assert scope.named_variables == 2
+    assert scope.variables == (VariableInfo(name="CONFIG", value="{}"),)

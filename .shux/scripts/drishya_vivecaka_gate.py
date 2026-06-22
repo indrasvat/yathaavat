@@ -17,11 +17,13 @@ OUT = ROOT / ".shux" / "out"
 SMOKE = ROOT / ".shux" / "scripts" / "inspector2_smoke.py"
 REQUIRED_SCREENSHOTS = (
     "inspector2-01-paused-locals.png",
-    "inspector2-02-expanded-page.png",
-    "inspector2-03-load-more.png",
-    "inspector2-04-filtered.png",
-    "inspector2-05-edit-dialog.png",
-    "inspector2-06-edit-result.png",
+    "inspector2-02-globals-scope.png",
+    "inspector2-03-globals-after-update.png",
+    "inspector2-04-expanded-page.png",
+    "inspector2-05-load-more.png",
+    "inspector2-06-filtered.png",
+    "inspector2-07-edit-dialog.png",
+    "inspector2-08-edit-result.png",
 )
 
 

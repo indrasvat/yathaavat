@@ -12,6 +12,8 @@ from dataclasses import dataclass, field
 
 import debugpy
 
+GLOBAL_SENTINEL = "scope-global"
+
 
 @dataclass(slots=True)
 class InspectorBox:

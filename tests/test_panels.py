@@ -5,7 +5,7 @@ from dataclasses import dataclass
 from pathlib import Path
 from typing import Any, cast
 
-from textual.widgets import DataTable, Input, ListView, RichLog, Static, TextArea
+from textual.widgets import DataTable, Input, ListView, RichLog, Select, Static, TextArea
 
 from tests.support import RecordingHost, RecordingManager, SingleWidgetApp, make_context
 from yathaavat.app.expression import ExpressionInput
@@ -27,6 +27,7 @@ from yathaavat.core import (
     SESSION_STORE,
     BreakpointInfo,
     FrameInfo,
+    ScopeInfo,
     VariableInfo,
     VariablePage,
 )
@@ -578,6 +579,118 @@ def test_locals_table_ignores_obsolete_variable_fetches() -> None:
     asyncio.run(run())
 
 
+def test_locals_table_invalidates_expanded_cache_on_generation_change() -> None:
+    async def run() -> None:
+        manager = RecordingManager(
+            variable_pages={
+                (9, 0, 2, None): VariablePage(
+                    variables=(VariableInfo(name="child", value="old", type="str"),),
+                    start=0,
+                    count=2,
+                    named_variables=1,
+                ),
+            }
+        )
+        ctx = make_context(manager=manager)
+        app = SingleWidgetApp(lambda: LocalsTable(ctx=ctx, page_size=2))
+
+        async with app.run_test() as pilot:
+            await pilot.pause()
+            table = cast(LocalsTable, app.widget)
+            root = (VariableInfo(name="payload", value="{...}", variables_reference=9),)
+            table.set_root(root, parent_reference=99, generation=1)
+            table.move_cursor(row=0)
+            await table.action_toggle_expand()
+            await pilot.pause()
+            assert [node.name for node in table.visible_nodes()] == ["payload", "child"]
+
+            table.set_root(root, parent_reference=99, generation=2)
+            await pilot.pause()
+
+            assert [node.name for node in table.visible_nodes()] == ["payload"]
+
+    asyncio.run(run())
+
+
+def test_locals_table_pages_root_scope_variables() -> None:
+    async def run() -> None:
+        first_page = VariablePage(
+            variables=(
+                VariableInfo(name="alpha", value="1", type="int"),
+                VariableInfo(name="beta", value="2", type="int"),
+            ),
+            start=0,
+            count=2,
+            named_variables=3,
+        )
+        manager = RecordingManager(
+            variable_pages={
+                (99, 2, 2, None): VariablePage(
+                    variables=(VariableInfo(name="gamma", value="3", type="int"),),
+                    start=2,
+                    count=2,
+                    named_variables=3,
+                )
+            }
+        )
+        ctx = make_context(manager=manager)
+        app = SingleWidgetApp(lambda: LocalsTable(ctx=ctx, page_size=2))
+
+        async with app.run_test() as pilot:
+            await pilot.pause()
+            table = cast(LocalsTable, app.widget)
+            table.set_root(
+                first_page.variables,
+                parent_reference=99,
+                root_page=first_page,
+                generation=1,
+            )
+            await pilot.pause()
+            assert [node.name for node in table.visible_nodes()] == [
+                "alpha",
+                "beta",
+                "Load more...",
+            ]
+
+            table.move_cursor(row=2)
+            await table.action_toggle_expand()
+            await pilot.pause()
+
+            assert [node.name for node in table.visible_nodes()] == ["alpha", "beta", "gamma"]
+            assert ("get_variables_page", (99, 2, 2, None)) in manager.calls
+
+    asyncio.run(run())
+
+
+def test_locals_table_stops_root_paging_on_short_unknown_total() -> None:
+    async def run() -> None:
+        short_page = VariablePage(
+            variables=(
+                VariableInfo(name="alpha", value="1", type="int"),
+                VariableInfo(name="beta", value="2", type="int"),
+            ),
+            start=0,
+            count=50,
+        )
+        ctx = make_context(manager=RecordingManager())
+        app = SingleWidgetApp(lambda: LocalsTable(ctx=ctx, page_size=50))
+
+        async with app.run_test() as pilot:
+            await pilot.pause()
+            table = cast(LocalsTable, app.widget)
+            table.set_root(
+                short_page.variables,
+                parent_reference=99,
+                root_page=short_page,
+                generation=1,
+            )
+            await pilot.pause()
+
+            assert [node.name for node in table.visible_nodes()] == ["alpha", "beta"]
+
+    asyncio.run(run())
+
+
 def test_locals_table_pages_nested_variable_children() -> None:
     async def run() -> None:
         manager = RecordingManager(
@@ -875,6 +988,227 @@ def test_locals_table_edits_root_variable_with_scope_reference() -> None:
 
             assert manager.calls == [("set_variable", (99, "answer", "43"))]
             assert [node.value for node in table.visible_nodes()] == ["43"]
+
+    asyncio.run(run())
+
+
+def test_locals_panel_switches_between_dap_scopes() -> None:
+    async def run() -> None:
+        manager = RecordingManager(
+            variable_pages={
+                (10, 0, 50, None): VariablePage(
+                    variables=(VariableInfo(name="CONFIG", value="{'debug': True}", type="dict"),),
+                    start=0,
+                    count=50,
+                    named_variables=1,
+                )
+            }
+        )
+        ctx = make_context(manager=manager)
+        store = ctx.services.get(SESSION_STORE)
+        app = SingleWidgetApp(lambda: LocalsPanel(ctx=ctx))
+
+        async with app.run_test() as pilot:
+            await pilot.pause()
+            panel = cast(LocalsPanel, app.widget)
+            store.update(
+                scopes=(
+                    ScopeInfo(
+                        name="Locals",
+                        variables_reference=9,
+                        named_variables=1,
+                        variables=(VariableInfo(name="answer", value="42", type="int"),),
+                    ),
+                    ScopeInfo(name="Globals", variables_reference=10, named_variables=1),
+                ),
+                selected_scope_name="Locals",
+                variables_generation=1,
+                locals=(VariableInfo(name="answer", value="42", type="int"),),
+                locals_reference=9,
+            )
+            await pilot.pause()
+
+            selector = panel.query_one("#scope_select", Select)
+            table = panel.query_one(LocalsTable)
+            assert selector.value == "Locals"
+            assert [node.name for node in table.visible_nodes()] == ["answer"]
+
+            panel.next_scope()
+            await pilot.pause()
+            await pilot.pause()
+
+            assert ("get_variables_page", (10, 0, 50, None)) in manager.calls
+            assert [node.name for node in table.visible_nodes()] == ["CONFIG"]
+
+    asyncio.run(run())
+
+
+def test_locals_panel_unrelated_update_preserves_loaded_scope_state() -> None:
+    async def run() -> None:
+        manager = RecordingManager(
+            variable_pages={
+                (10, 0, 50, None): VariablePage(
+                    variables=(VariableInfo(name="CONFIG", value="{'debug': True}", type="dict"),),
+                    start=0,
+                    count=50,
+                    named_variables=1,
+                )
+            }
+        )
+        ctx = make_context(manager=manager)
+        store = ctx.services.get(SESSION_STORE)
+        app = SingleWidgetApp(lambda: LocalsPanel(ctx=ctx))
+
+        async with app.run_test() as pilot:
+            await pilot.pause()
+            panel = cast(LocalsPanel, app.widget)
+            store.update(
+                scopes=(
+                    ScopeInfo(
+                        name="Locals",
+                        variables_reference=9,
+                        named_variables=1,
+                        variables=(VariableInfo(name="answer", value="42", type="int"),),
+                    ),
+                    ScopeInfo(name="Globals", variables_reference=10, named_variables=1),
+                ),
+                selected_scope_name="Locals",
+                variables_generation=1,
+                locals=(VariableInfo(name="answer", value="42", type="int"),),
+                locals_reference=9,
+            )
+            await pilot.pause()
+
+            panel.next_scope()
+            await pilot.pause()
+            await pilot.pause()
+
+            table = panel.query_one(LocalsTable)
+            assert [node.name for node in table.visible_nodes()] == ["CONFIG"]
+            assert manager.calls.count(("get_variables_page", (10, 0, 50, None))) == 1
+
+            store.update(breakpoints=(BreakpointInfo(path="/repo/app.py", line=1),))
+            await pilot.pause()
+
+            assert [node.name for node in table.visible_nodes()] == ["CONFIG"]
+            assert manager.calls.count(("get_variables_page", (10, 0, 50, None))) == 1
+
+    asyncio.run(run())
+
+
+def test_locals_panel_preserves_scope_root_paging_across_scope_switches() -> None:
+    async def run() -> None:
+        manager = RecordingManager(
+            variable_pages={
+                (10, 0, 50, None): VariablePage(
+                    variables=(
+                        VariableInfo(name="alpha", value="1", type="int"),
+                        VariableInfo(name="beta", value="2", type="int"),
+                    ),
+                    start=0,
+                    count=2,
+                    named_variables=3,
+                ),
+                (10, 2, 50, None): VariablePage(
+                    variables=(VariableInfo(name="gamma", value="3", type="int"),),
+                    start=2,
+                    count=50,
+                    named_variables=3,
+                ),
+            }
+        )
+        ctx = make_context(manager=manager)
+        store = ctx.services.get(SESSION_STORE)
+        app = SingleWidgetApp(lambda: LocalsPanel(ctx=ctx))
+
+        async with app.run_test() as pilot:
+            await pilot.pause()
+            panel = cast(LocalsPanel, app.widget)
+            store.update(
+                scopes=(
+                    ScopeInfo(
+                        name="Locals",
+                        variables_reference=9,
+                        named_variables=1,
+                        variables=(VariableInfo(name="answer", value="42", type="int"),),
+                    ),
+                    ScopeInfo(name="Globals", variables_reference=10, named_variables=3),
+                ),
+                selected_scope_name="Locals",
+                variables_generation=1,
+                locals=(VariableInfo(name="answer", value="42", type="int"),),
+                locals_reference=9,
+            )
+            await pilot.pause()
+
+            table = panel.query_one(LocalsTable)
+            panel.next_scope()
+            await pilot.pause()
+            await pilot.pause()
+            assert [node.name for node in table.visible_nodes()] == [
+                "alpha",
+                "beta",
+                "Load more...",
+            ]
+
+            panel.next_scope()
+            await pilot.pause()
+            panel.next_scope()
+            await pilot.pause()
+            assert [node.name for node in table.visible_nodes()] == [
+                "alpha",
+                "beta",
+                "Load more...",
+            ]
+
+            table.move_cursor(row=2)
+            await table.action_toggle_expand()
+            await pilot.pause()
+            assert [node.name for node in table.visible_nodes()] == ["alpha", "beta", "gamma"]
+
+            panel.next_scope()
+            await pilot.pause()
+            panel.next_scope()
+            await pilot.pause()
+            assert [node.name for node in table.visible_nodes()] == ["alpha", "beta", "gamma"]
+
+    asyncio.run(run())
+
+
+def test_locals_panel_unrelated_update_preserves_edited_scope_value() -> None:
+    async def run() -> None:
+        manager = RecordingManager()
+        ctx = make_context(manager=manager)
+        store = ctx.services.get(SESSION_STORE)
+        app = SingleWidgetApp(lambda: LocalsPanel(ctx=ctx))
+
+        async with app.run_test() as pilot:
+            await pilot.pause()
+            store.update(
+                scopes=(
+                    ScopeInfo(
+                        name="Locals",
+                        variables_reference=9,
+                        named_variables=1,
+                        variables=(VariableInfo(name="answer", value="42", type="int"),),
+                    ),
+                ),
+                selected_scope_name="Locals",
+                variables_generation=1,
+                locals=(VariableInfo(name="answer", value="42", type="int"),),
+                locals_reference=9,
+            )
+            await pilot.pause()
+
+            table = cast(LocalsPanel, app.widget).query_one(LocalsTable)
+            table.move_cursor(row=0)
+            await table.edit_selected_value("43")
+            await pilot.pause()
+            store.update(breakpoints=(BreakpointInfo(path="/repo/app.py", line=1),))
+            await pilot.pause()
+
+            assert [node.value for node in table.visible_nodes()] == ["43"]
+            assert store.snapshot().locals == (VariableInfo(name="answer", value="43"),)
 
     asyncio.run(run())
 

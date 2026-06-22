@@ -74,6 +74,17 @@ class VariableInfo:
 
 
 @dataclass(frozen=True, slots=True)
+class ScopeInfo:
+    name: str
+    variables_reference: int
+    expensive: bool = False
+    indexed_variables: int | None = None
+    named_variables: int | None = None
+    variables: tuple[VariableInfo, ...] = ()
+    page: VariablePage | None = None
+
+
+@dataclass(frozen=True, slots=True)
 class VariablePage:
     variables: tuple[VariableInfo, ...]
     start: int | None = None
@@ -230,6 +241,9 @@ class SessionSnapshot:
     stop_reason: str | None = None
     stop_description: str | None = None
     exception_info: ExceptionInfo | None = None
+    scopes: tuple[ScopeInfo, ...] = ()
+    selected_scope_name: str | None = None
+    variables_generation: int = 0
     locals: tuple[VariableInfo, ...] = ()
     locals_reference: int | None = None
     watches: tuple[WatchInfo, ...] = ()

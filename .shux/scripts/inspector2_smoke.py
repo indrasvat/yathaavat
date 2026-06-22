@@ -22,6 +22,7 @@ CTRL_P = "EA=="
 ENTER = "DQ=="
 ESC = "Gw=="
 DOWN = "G1tC"
+G_KEY = "g"
 
 
 def main() -> int:
@@ -85,35 +86,49 @@ def main() -> int:
         assert_screen(pane, "filter locals")
 
         focus_locals(pane)
+        send_text(pane, G_KEY)
+        wait_for(pane, "Globals", timeout_ms=10000)
+        wait_for(pane, "__name__", timeout_ms=10000)
+        snapshot(pane, "inspector2-02-globals-scope.png")
+
+        run_palette_command(pane, "toggle breakpoint", "Toggle Breakpoint")
+        wait_for(pane, "Globals", timeout_ms=10000)
+        wait_for(pane, "__name__", timeout_ms=10000)
+        snapshot(pane, "inspector2-03-globals-after-update.png")
+
+        send_text(pane, G_KEY)
+        wait_for(pane, "Locals", timeout_ms=10000)
+        wait_for(pane, "box", timeout_ms=10000)
+
         send_data(pane, DOWN)
         send_data(pane, DOWN)
         run_palette_command(pane, "expand selected local", "Expand Selected Local")
         snapshot(pane, "inspector2-debug-after-expand-key.png")
         wait_for(pane, "Load more")
-        snapshot(pane, "inspector2-02-expanded-page.png")
+        snapshot(pane, "inspector2-04-expanded-page.png")
 
         focus_locals(pane)
         for _ in range(10):
             send_data(pane, DOWN)
         run_palette_command(pane, "expand selected local", "Expand Selected Local")
         wait_for(pane, "item-013")
-        snapshot(pane, "inspector2-03-load-more.png")
+        snapshot(pane, "inspector2-05-load-more.png")
 
         run_palette_command(pane, "filter locals", "Filter Locals")
         send_text(pane, "013")
         time.sleep(0.4)
         wait_for(pane, "item-013")
-        snapshot(pane, "inspector2-04-filtered.png")
+        snapshot(pane, "inspector2-06-filtered.png")
 
         send_data(pane, ENTER)
         run_palette_command(pane, "edit selected local", "Edit Selected Local")
         wait_for(pane, "Edit 013", timeout_ms=10000)
-        snapshot(pane, "inspector2-05-edit-dialog.png")
+        snapshot(pane, "inspector2-07-edit-dialog.png")
 
         send_text(pane, "'changed'")
         send_data(pane, ENTER)
         wait_for(pane, "changed")
-        snapshot(pane, "inspector2-06-edit-result.png")
+        snapshot(pane, "inspector2-08-edit-result.png")
 
         print(
             json.dumps(

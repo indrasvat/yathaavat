@@ -13,6 +13,7 @@ from yathaavat.core import (
     BreakpointInfo,
     DapCapabilities,
     FrameInfo,
+    ScopeInfo,
     SessionState,
     SessionStore,
     TaskCaptureStatus,
@@ -32,6 +33,7 @@ from yathaavat.plugins.debugpy import (
     _initialize_arguments,
     _is_pyruntime_lookup_failure,
     _is_user_path,
+    _parse_scopes,
     _parse_variables,
 )
 
@@ -89,6 +91,25 @@ def test_response_helpers_ignore_malformed_payloads() -> None:
             indexed_variables=3,
         )
     ]
+    assert _parse_scopes(
+        [
+            {
+                "name": "Globals",
+                "variablesReference": 12,
+                "expensive": True,
+                "namedVariables": 3,
+            },
+            {"name": "missing-ref"},
+            "bad",
+        ]
+    ) == (
+        ScopeInfo(
+            name="Globals",
+            variables_reference=12,
+            expensive=True,
+            named_variables=3,
+        ),
+    )
 
 
 def test_initialize_arguments_advertise_variable_paging() -> None:
@@ -200,7 +221,25 @@ def test_refresh_threads_frames_and_locals_choose_user_frame() -> None:
                         }
                     }
                 ],
-                "scopes": [{"body": {"scopes": [{"name": "Locals", "variablesReference": 99}]}}],
+                "scopes": [
+                    {
+                        "body": {
+                            "scopes": [
+                                {
+                                    "name": "Globals",
+                                    "variablesReference": 100,
+                                    "expensive": True,
+                                    "namedVariables": 8,
+                                },
+                                {
+                                    "name": "Locals",
+                                    "variablesReference": 99,
+                                    "namedVariables": 1,
+                                },
+                            ]
+                        }
+                    }
+                ],
                 "variables": [
                     {
                         "body": {
@@ -227,6 +266,26 @@ def test_refresh_threads_frames_and_locals_choose_user_frame() -> None:
         assert snap.selected_thread_id == 1
         assert snap.selected_frame_id == 11
         assert snap.source_path == source
+        assert snap.selected_scope_name == "Locals"
+        assert snap.variables_generation == 1
+        assert snap.scopes == (
+            ScopeInfo(
+                name="Globals",
+                variables_reference=100,
+                expensive=True,
+                named_variables=8,
+            ),
+            ScopeInfo(
+                name="Locals",
+                variables_reference=99,
+                named_variables=1,
+                variables=(VariableInfo(name="answer", value="42", type="int"),),
+                page=VariablePage(
+                    variables=(VariableInfo(name="answer", value="42", type="int"),),
+                    named_variables=1,
+                ),
+            ),
+        )
         assert snap.locals == (VariableInfo(name="answer", value="42", type="int"),)
         assert snap.locals_reference == 99
 
