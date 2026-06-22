@@ -732,8 +732,8 @@ class LocalsTable(DataTable[str]):
             return
         self._filter = next_filter
         self._rebuild()
-        if self._flat:
-            self.move_cursor(row=0)
+        if self._flat and self._filter:
+            self.move_cursor(row=self._preferred_filter_row())
 
     async def action_toggle_expand(self) -> None:
         node = self._selected_node()
@@ -1021,6 +1021,27 @@ class LocalsTable(DataTable[str]):
                     return
         if previous_row is not None:
             self.move_cursor(row=min(max(previous_row, 0), len(self._flat) - 1))
+
+    def _preferred_filter_row(self) -> int:
+        for index, node in enumerate(self._flat):
+            if (
+                not node.is_load_more
+                and node.depth > 0
+                and node.parent_reference is not None
+                and _node_matches_filter(node, self._filter)
+            ):
+                return index
+        for index, node in enumerate(self._flat):
+            if (
+                not node.is_load_more
+                and node.parent_reference is not None
+                and _node_matches_filter(node, self._filter)
+            ):
+                return index
+        for index, node in enumerate(self._flat):
+            if not node.is_load_more and _node_matches_filter(node, self._filter):
+                return index
+        return 0
 
 
 def _node_key(node: _VarNode) -> tuple[object, ...]:

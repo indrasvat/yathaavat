@@ -106,7 +106,6 @@ def main() -> int:
         snapshot(pane, "inspector2-04-filtered.png")
 
         send_data(pane, ENTER)
-        send_data(pane, DOWN)
         run_palette_command(pane, "edit selected local", "Edit Selected Local")
         wait_for(pane, "Edit 013", timeout_ms=10000)
         snapshot(pane, "inspector2-05-edit-dialog.png")
