@@ -2,7 +2,7 @@ from __future__ import annotations
 
 from typing import cast
 
-from yathaavat.core.session import (
+from yathaavat.core import (
     ScopeInfo,
     SessionSnapshot,
     SessionState,

@@ -1244,9 +1244,12 @@ class DebugpySessionManager(SessionManager):
     async def _refresh_locals(self, frame_id: int) -> None:
         self._variable_counts.clear()
         dap = self._require_dap()
+        dap_id = id(dap)
         scopes_resp = await dap.request("scopes", {"frameId": frame_id})
         scopes = _parse_scopes(_as_list(_body(scopes_resp).get("scopes")))
         generation = self.store.snapshot().variables_generation + 1
+        if not self._is_current_variables_refresh(frame_id, dap_id):
+            return
         if not scopes:
             self.store.update(
                 scopes=(),
@@ -1275,6 +1278,8 @@ class DebugpySessionManager(SessionManager):
             "variables", {"variablesReference": selected_scope.variables_reference}
         )
         variables = tuple(_parse_variables(_as_list(_body(vars_resp).get("variables"))))
+        if not self._is_current_variables_refresh(frame_id, dap_id):
+            return
         self._remember_variable_counts(variables)
         selected_page = VariablePage(
             variables=variables,
@@ -1293,6 +1298,15 @@ class DebugpySessionManager(SessionManager):
             variables_generation=generation,
             locals=variables,
             locals_reference=selected_scope.variables_reference,
+        )
+
+    def _is_current_variables_refresh(self, frame_id: int, dap_id: int) -> bool:
+        snapshot = self.store.snapshot()
+        return (
+            self._dap is not None
+            and id(self._dap) == dap_id
+            and snapshot.state == SessionState.PAUSED
+            and snapshot.selected_frame_id == frame_id
         )
 
     async def _sync_all_breakpoints(self) -> None:
