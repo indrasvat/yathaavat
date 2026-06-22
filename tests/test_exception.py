@@ -5,7 +5,7 @@ from pathlib import Path
 
 from textual.widgets import Static, Tree
 
-from tests.support import SingleWidgetApp, make_context
+from tests.support import RecordingHost, SingleWidgetApp, make_context
 from yathaavat.app.exception import ExceptionPanel, _frame_label, _node_label
 from yathaavat.core import (
     SESSION_STORE,
@@ -128,5 +128,54 @@ def test_exception_tree_selects_matching_stack_frame_or_reports_failure(
 
         assert manager.calls == [("select_frame", (9,))]
         assert host.notifications == [("stopped", 2.5)]
+
+    asyncio.run(run())
+
+
+def test_exception_tree_breakpoint_action_refuses_missing_source_or_session(
+    tmp_path: Path,
+) -> None:
+    async def run() -> None:
+        host = RecordingHost()
+        ctx = make_context(host=host)
+        store = ctx.services.get(SESSION_STORE)
+        source = tmp_path / "boom.py"
+        source.write_text("raise RuntimeError('boom')\n", encoding="utf-8")
+        no_source_frame = TracebackFrame(path=None, line=None, name="generated", text="raise")
+        valid_frame = TracebackFrame(path=str(source), line=1, name="main", text="raise")
+        info = ExceptionInfo(
+            exception_id="RuntimeError",
+            break_mode=BreakMode.UNHANDLED,
+            stack_trace="",
+            tree=ExceptionNode(
+                type_name="RuntimeError",
+                message="boom",
+                frames=(no_source_frame, valid_frame),
+            ),
+        )
+
+        panel = ExceptionPanel(ctx=ctx)
+        async with SingleWidgetApp(panel).run_test() as pilot:
+            await pilot.pause()
+            store.update(exception_info=info)
+            await pilot.pause()
+            tree = panel.query_one(Tree)
+            branch = tree.root.children[0]
+
+            no_source_node = branch.children[0]
+            tree.cursor_line = no_source_node.line
+            host.notifications.clear()
+            panel._tree.action_add_breakpoint()
+            assert host.notifications == [("No source location.", 1.5)]
+
+            valid_node = branch.children[1]
+            tree.cursor_line = valid_node.line
+            host.notifications.clear()
+            panel._tree.action_add_breakpoint()
+            assert host.notifications == [("No session.", 1.5)]
+
+            host.notifications.clear()
+            panel._tree.action_copy_traceback()
+            assert host.notifications == [("No traceback to copy.", 1.5)]
 
     asyncio.run(run())

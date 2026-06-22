@@ -9,7 +9,7 @@ def test_textual_ui_host_noops_until_bound_and_delegates_after_bind() -> None:
     class _TestApp:
         def __init__(self) -> None:
             self.notifications: list[tuple[str, float]] = []
-            self.later: list[object] = []
+            self.later: list[str] = []
             self.screens: list[object] = []
             self.exited = False
             self.popped = 0
@@ -26,8 +26,21 @@ def test_textual_ui_host_noops_until_bound_and_delegates_after_bind() -> None:
         def action_open_source_find(self) -> None:
             self.later.append("find")
 
+        def action_focus_locals(self) -> None:
+            self.later.append("locals")
+
+        def action_focus_locals_filter(self) -> None:
+            self.later.append("filter")
+
+        def action_expand_selected_local(self) -> None:
+            self.later.append("expand")
+
+        def action_edit_selected_local(self) -> None:
+            self.later.append("edit")
+
         def call_later(self, action: object) -> None:
-            self.later.append(action)
+            assert callable(action)
+            action()
 
         def push_screen(self, screen: object) -> None:
             self.screens.append(screen)
@@ -44,12 +57,37 @@ def test_textual_ui_host_noops_until_bound_and_delegates_after_bind() -> None:
     host.notify("hello", timeout=2.0)
     host.toggle_zoom()
     host.open_source_find()
+    host.focus_locals()
+    host.focus_locals_filter()
+    host.expand_selected_local()
+    host.edit_selected_local()
     host.push_screen(cast(Any, object()))
     host.pop_screen()
     host.exit()
 
     assert app.notifications == [("hello", 2.0)]
-    assert len(app.later) == 2
+    assert app.later == ["zoom", "find", "locals", "filter", "expand", "edit"]
     assert len(app.screens) == 1
     assert app.popped == 1
     assert app.exited is True
+
+
+def test_textual_ui_host_ignores_missing_optional_app_actions() -> None:
+    class _MinimalApp:
+        def __init__(self) -> None:
+            self.later: list[object] = []
+
+        def call_later(self, action: object) -> None:
+            self.later.append(action)
+
+    app = _MinimalApp()
+    host = TextualUiHost().bind(cast(Any, app))
+
+    host.toggle_zoom()
+    host.open_source_find()
+    host.focus_locals()
+    host.focus_locals_filter()
+    host.expand_selected_local()
+    host.edit_selected_local()
+
+    assert app.later == []
