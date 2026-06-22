@@ -703,6 +703,58 @@ def test_locals_table_filters_visible_variables_without_resetting_expansion() ->
     asyncio.run(run())
 
 
+def test_locals_table_filter_prefers_first_editable_match() -> None:
+    async def run() -> None:
+        manager = RecordingManager(
+            variable_pages={
+                (9, 0, 3, None): VariablePage(
+                    variables=(
+                        VariableInfo(name="012", value="'item-012'", type="str"),
+                        VariableInfo(
+                            name="013",
+                            value="{'label': 'item-013'}",
+                            type="dict",
+                            variables_reference=11,
+                        ),
+                    ),
+                    start=0,
+                    count=3,
+                    indexed_variables=2,
+                ),
+            }
+        )
+        ctx = make_context(manager=manager)
+        app = SingleWidgetApp(lambda: LocalsTable(ctx=ctx, page_size=3))
+
+        async with app.run_test() as pilot:
+            await pilot.pause()
+            table = cast(LocalsTable, app.widget)
+            table.set_root(
+                (
+                    VariableInfo(
+                        name="items",
+                        value="['item-012', 'item-013']",
+                        type="list",
+                        variables_reference=9,
+                    ),
+                ),
+                parent_reference=99,
+            )
+            table.move_cursor(row=0)
+            await table.action_toggle_expand()
+            table.move_cursor(row=2)
+            table.set_filter("013")
+            await pilot.pause()
+
+            assert [node.name for node in table.visible_nodes()] == ["items", "013"]
+            assert table.cursor_row == 1
+
+            await table.edit_selected_value("'changed'")
+            assert ("set_variable", (9, "013", "'changed'")) in manager.calls
+
+    asyncio.run(run())
+
+
 def test_locals_table_edits_selected_variable() -> None:
     async def run() -> None:
         manager = RecordingManager(

@@ -81,6 +81,11 @@ Inside the TUI, press `Ctrl+R` and type `examples/demo_target.py` to launch a de
 | `Ctrl+G` | Go to line |
 | `Ctrl+E` | Jump to execution line |
 | `Enter` | Run to cursor (Source, paused) |
+| `Ctrl+L` / `Alt+L` | Focus Locals inspector |
+| `/` | Filter locals (Locals panel) |
+| `Enter` | Expand selected local / load next page (Locals panel) |
+| `e` | Edit selected local value (Locals panel) |
+| `y` | Copy selected local value (Locals panel) |
 | `y` | Copy traceback (Exception panel) |
 | `a` | Add breakpoint at frame (Exception panel) |
 | `F2` | Zoom / unzoom focused pane |
