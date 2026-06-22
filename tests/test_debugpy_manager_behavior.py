@@ -367,6 +367,77 @@ def test_refresh_locals_ignores_stale_variables_after_resume() -> None:
     asyncio.run(run())
 
 
+def test_refresh_locals_ignores_stale_variables_after_scope_switch() -> None:
+    class BlockingScopeDap(_TestDap):
+        def __init__(self) -> None:
+            super().__init__()
+            self.variables_started = asyncio.Event()
+            self.release_variables = asyncio.Event()
+
+        async def request(
+            self, command: str, arguments: dict[str, object], timeout_s: float | None = None
+        ) -> dict[str, object]:
+            self.requests.append((command, arguments, timeout_s))
+            if command == "scopes":
+                return {
+                    "body": {
+                        "scopes": [
+                            {
+                                "name": "Locals",
+                                "variablesReference": 7,
+                                "namedVariables": 1,
+                            },
+                            {
+                                "name": "Globals",
+                                "variablesReference": 8,
+                                "namedVariables": 1,
+                            },
+                        ]
+                    }
+                }
+            if command == "variables":
+                self.variables_started.set()
+                await self.release_variables.wait()
+                return {
+                    "body": {
+                        "variables": [
+                            {
+                                "name": "late_local",
+                                "value": "99",
+                                "type": "int",
+                                "variablesReference": 0,
+                            }
+                        ]
+                    }
+                }
+            return {"body": {}}
+
+    async def run() -> None:
+        store = SessionStore()
+        store.update(
+            state=SessionState.PAUSED,
+            selected_frame_id=7,
+            selected_scope_name="Locals",
+        )
+        manager = _manager(store)
+        dap = BlockingScopeDap()
+        _set_dap(manager, dap)
+
+        refresh_task = asyncio.create_task(manager._refresh_locals(7))
+        await asyncio.wait_for(dap.variables_started.wait(), timeout=1)
+        store.update(selected_scope_name="Globals")
+        dap.release_variables.set()
+        await asyncio.wait_for(refresh_task, timeout=1)
+
+        snap = store.snapshot()
+        assert snap.selected_scope_name == "Globals"
+        assert snap.scopes == ()
+        assert snap.locals == ()
+        assert snap.locals_reference is None
+
+    asyncio.run(run())
+
+
 def test_evaluate_variants_include_frame_and_transcript() -> None:
     async def run() -> None:
         store = SessionStore()

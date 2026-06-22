@@ -1189,12 +1189,12 @@ def _root_scope_page(
     variables: tuple[VariableInfo, ...],
     page: VariablePage,
 ) -> VariablePage:
-    count = len(variables)
+    count = page.count
     if page.total is None and page.count is not None and len(page.variables) < page.count:
         count = len(variables) + 1
     return VariablePage(
         variables=variables,
-        start=0,
+        start=0 if count is not None else None,
         count=count,
         filter=page.filter,
         indexed_variables=page.indexed_variables,

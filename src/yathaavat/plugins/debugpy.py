@@ -1247,9 +1247,10 @@ class DebugpySessionManager(SessionManager):
         dap_id = id(dap)
         scopes_resp = await dap.request("scopes", {"frameId": frame_id})
         scopes = _parse_scopes(_as_list(_body(scopes_resp).get("scopes")))
-        generation = self.store.snapshot().variables_generation + 1
         if not self._is_current_variables_refresh(frame_id, dap_id):
             return
+        snapshot = self.store.snapshot()
+        generation = snapshot.variables_generation + 1
         if not scopes:
             self.store.update(
                 scopes=(),
@@ -1266,7 +1267,7 @@ class DebugpySessionManager(SessionManager):
                 scope.named_variables,
             )
 
-        previous_name = self.store.snapshot().selected_scope_name
+        previous_name = snapshot.selected_scope_name
         selected_scope = next((scope for scope in scopes if scope.name == previous_name), None)
         if selected_scope is None:
             selected_scope = next(
@@ -1279,6 +1280,8 @@ class DebugpySessionManager(SessionManager):
         )
         variables = tuple(_parse_variables(_as_list(_body(vars_resp).get("variables"))))
         if not self._is_current_variables_refresh(frame_id, dap_id):
+            return
+        if self.store.snapshot().selected_scope_name != previous_name:
             return
         self._remember_variable_counts(variables)
         selected_page = VariablePage(

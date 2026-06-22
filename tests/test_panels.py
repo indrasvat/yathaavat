@@ -22,6 +22,7 @@ from yathaavat.app.panels import (
     _format_breakpoint_details,
     _frame_rows,
     _language_for_path,
+    _root_scope_page,
 )
 from yathaavat.core import (
     SESSION_STORE,
@@ -1211,6 +1212,47 @@ def test_locals_panel_unrelated_update_preserves_edited_scope_value() -> None:
             assert store.snapshot().locals == (VariableInfo(name="answer", value="43"),)
 
     asyncio.run(run())
+
+
+def test_root_scope_page_does_not_invent_paging_for_unpaged_response() -> None:
+    page = _root_scope_page(
+        (
+            VariableInfo(name="alpha", value="1"),
+            VariableInfo(name="beta", value="2"),
+        ),
+        VariablePage(
+            variables=(
+                VariableInfo(name="alpha", value="1"),
+                VariableInfo(name="beta", value="2"),
+            )
+        ),
+    )
+
+    assert page.start is None
+    assert page.count is None
+    assert page.next_start is None
+
+
+def test_root_scope_page_preserves_page_size_for_known_total() -> None:
+    page = _root_scope_page(
+        (
+            VariableInfo(name="alpha", value="1"),
+            VariableInfo(name="beta", value="2"),
+        ),
+        VariablePage(
+            variables=(
+                VariableInfo(name="alpha", value="1"),
+                VariableInfo(name="beta", value="2"),
+            ),
+            start=0,
+            count=2,
+            named_variables=3,
+        ),
+    )
+
+    assert page.start == 0
+    assert page.count == 2
+    assert page.next_start == 2
 
 
 def test_locals_filter_escape_clears_query_and_focuses_table() -> None:
