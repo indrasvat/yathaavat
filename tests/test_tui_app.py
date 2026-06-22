@@ -131,6 +131,84 @@ def test_yathaavat_app_mounts_status_runs_commands_and_toggles_zoom() -> None:
     asyncio.run(run())
 
 
+def test_yathaavat_app_notifies_when_target_widgets_are_missing(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    async def run() -> None:
+        ctx = make_context()
+        app = YathaavatApp(ctx=ctx, plugin_errors=[])
+        notifications: list[tuple[str, float]] = []
+
+        def notify(message: str, **kwargs: Any) -> None:
+            timeout = kwargs.get("timeout", 1.2)
+            assert isinstance(timeout, int | float)
+            notifications.append((message, float(timeout)))
+
+        monkeypatch.setattr(app, "notify", notify)
+
+        async with app.run_test() as pilot:
+            await pilot.pause()
+            notifications.clear()
+            app.action_open_source_find()
+            app.action_focus_locals()
+            app.action_focus_locals_filter()
+            await app.action_expand_selected_local()
+            await app.action_edit_selected_local()
+
+        assert notifications == [
+            ("Source view not available.", 2.0),
+            ("Locals panel is not available.", 2.0),
+            ("Locals filter is not available.", 2.0),
+            ("Locals panel is not available.", 2.0),
+            ("Locals panel is not available.", 2.0),
+        ]
+
+    asyncio.run(run())
+
+
+def test_yathaavat_app_awaits_custom_locals_actions() -> None:
+    async def run() -> None:
+        calls: list[str] = []
+        ctx = make_context()
+
+        class _LocalsTable(Static):
+            def __init__(self) -> None:
+                super().__init__("locals", id="locals_table")
+
+            def action_toggle_expand(self) -> object:
+                async def expand() -> None:
+                    await asyncio.sleep(0)
+                    calls.append("expanded")
+
+                return expand()
+
+            def action_edit_value(self) -> object:
+                async def edit() -> None:
+                    await asyncio.sleep(0)
+                    calls.append("edited")
+
+                return edit()
+
+        ctx.widgets.register(
+            WidgetContribution(
+                id="builtin.locals",
+                title="Locals",
+                slot=Slot.RIGHT,
+                factory=lambda _ctx: _LocalsTable(),
+            )
+        )
+        app = YathaavatApp(ctx=ctx, plugin_errors=[])
+
+        async with app.run_test() as pilot:
+            await pilot.pause()
+            await app.action_expand_selected_local()
+            await app.action_edit_selected_local()
+
+        assert calls == ["expanded", "edited"]
+
+    asyncio.run(run())
+
+
 def test_run_tui_loads_plugins_binds_host_and_passes_plugin_errors(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:

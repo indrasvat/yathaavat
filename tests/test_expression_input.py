@@ -7,7 +7,7 @@ from textual import events
 from textual.widgets import ListView
 
 from tests.support import RecordingManager, SingleWidgetApp, make_context
-from yathaavat.app.expression import ExpressionInput
+from yathaavat.app.expression import ExpressionInput, _is_typing_key
 from yathaavat.app.input_history import InputHistory
 from yathaavat.core import CompletionItem
 
@@ -125,5 +125,40 @@ def test_expression_input_without_completion_backend_hides_stale_menu() -> None:
             assert expr.query_one(ListView).styles.display == "block"
             expr.request_completions()
             assert expr.query_one(ListView).styles.display == "none"
+
+    asyncio.run(run())
+
+
+def test_expression_input_key_routing_keeps_completion_menu_and_history_consistent() -> None:
+    async def run() -> None:
+        expr = ExpressionInput(ctx=make_context())
+
+        async with SingleWidgetApp(expr).run_test() as pilot:
+            await pilot.pause()
+            expr.value = "scratch"
+            await expr._area.on_key(events.Key("up", None))
+            await expr._area.on_key(events.Key("down", None))
+            assert expr.value == "scratch"
+
+            expr._show_completions(
+                (
+                    CompletionItem(
+                        label="scratchpad",
+                        insert_text="scratchpad",
+                        replace_start=0,
+                        replace_length=len("scratch"),
+                    ),
+                )
+            )
+            assert expr.query_one(ListView).styles.display == "block"
+            await expr._area.on_key(events.Key("x", "x"))
+            assert expr.query_one(ListView).styles.display == "none"
+
+            expr.value = "answer"
+            await expr._area.on_key(events.Key("enter", "\n"))
+            assert expr.value == "answer"
+
+        assert _is_typing_key(events.Key("delete", None)) is True
+        assert _is_typing_key(events.Key("ctrl+p", None)) is False
 
     asyncio.run(run())
