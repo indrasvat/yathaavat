@@ -55,7 +55,7 @@ class AddWatchDialog(ModalScreen[None]):
                 Static("", id="watch_status"),
                 id="watch_row",
             ),
-            Static("Enter add  •  Esc close", id="watch_hint"),
+            Static("Watch input active: Enter add  •  Esc close", id="watch_hint"),
             id="watch_root",
         )
 
@@ -81,6 +81,10 @@ class AddWatchDialog(ModalScreen[None]):
         if isinstance(control, ExpressionInput):
             control.clear()
         self.query_one("#watch_status", Static).update("added")
+
+    @on(ExpressionInput.Cancelled, "#watch_input")
+    def _on_cancelled(self, _event: ExpressionInput.Cancelled) -> None:
+        self.app.pop_screen()
 
 
 class WatchesTable(DataTable[str | Text]):

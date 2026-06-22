@@ -59,13 +59,13 @@ def test_launch_picker_selected_file_quotes_path_and_launches(
             picker._files = [DiscoveredFile(path=str(script), boost=True)]
             picker._refresh_results()
             lv = picker.query_one("#launch_list", ListView)
-            lv.index = 0
+            assert lv.index == 0
 
             input_widget = picker.query_one("#launch_input", Input)
             picker._on_submit(Input.Submitted(input_widget, "demo"))
             await pilot.pause()
 
-        assert ("launch", ((str(script),),)) in manager.calls
+        assert ("launch", ((str(script),), (), None)) in manager.calls
         assert host.notifications[-1][0].startswith("Launching")
         assert picker._history.load()[0].command == f"'{script}'"
 
@@ -98,7 +98,9 @@ def test_launch_picker_manual_submit_reports_invalid_and_missing_backend(
             picker._on_submit(Input.Submitted(input_widget, "python app.py"))
             await pilot.pause()
 
-        assert host.notifications[0][0] == "Invalid command."
+        assert host.notifications[0][0] == (
+            "Invalid launch. Use a Python file/module or a synced uv run command."
+        )
         assert host.notifications[1][0] == "No session backend available."
 
     asyncio.run(run())

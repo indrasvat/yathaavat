@@ -65,7 +65,7 @@ def test_connect_picker_submit_selected_row_connects_and_records_history(
             picker._refresh_results()
 
             lv = picker.query_one("#connect_list", ListView)
-            lv.index = 0
+            assert lv.index == 0
             input_widget = picker.query_one("#connect_input", Input)
             picker._on_submit(Input.Submitted(input_widget, "svc"))
             await pilot.pause()

@@ -1,0 +1,4 @@
+interface:
+  display_name: "Kurukshetra Debug Gauntlet"
+  short_description: "Scenario-based yathaavat debugger dogfood"
+  default_prompt: "Use $kurukshetra-debug-gauntlet to run a realistic yathaavat debugger dogfood scenario and fix validated product friction."

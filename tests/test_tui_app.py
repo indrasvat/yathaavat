@@ -6,6 +6,7 @@ from pathlib import Path
 from typing import Any, ClassVar
 
 import pytest
+from textual.binding import Binding
 from textual.widgets import Static
 
 import yathaavat.app.tui as tui
@@ -76,6 +77,16 @@ def test_tui_helpers_format_status_help_and_focus_targets(tmp_path: Path) -> Non
         "focus-bottom-right"
     )
     assert _zoom_target_for_focus(_FocusNode(None)) == "zoom-center"
+
+    app_bindings = {
+        binding.key: binding.action
+        for binding in YathaavatApp.BINDINGS
+        if isinstance(binding, Binding)
+    }
+    assert app_bindings["f5"] == "command('debug.continue')"
+    assert app_bindings["f10"] == "command('debug.step_over')"
+    assert app_bindings["f11"] == "command('debug.step_in')"
+    assert app_bindings["f12"] == "command('debug.step_out')"
 
 
 def test_yathaavat_app_mounts_status_runs_commands_and_toggles_zoom() -> None:
