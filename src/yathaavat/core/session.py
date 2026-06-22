@@ -69,6 +69,56 @@ class VariableInfo:
     value: str
     type: str | None = None
     variables_reference: int = 0
+    indexed_variables: int | None = None
+    named_variables: int | None = None
+
+
+@dataclass(frozen=True, slots=True)
+class VariablePage:
+    variables: tuple[VariableInfo, ...]
+    start: int | None = None
+    count: int | None = None
+    filter: str | None = None
+    indexed_variables: int | None = None
+    named_variables: int | None = None
+
+    @property
+    def total(self) -> int | None:
+        match self.filter:
+            case "indexed":
+                return self.indexed_variables
+            case "named":
+                return self.named_variables
+            case _:
+                values = [
+                    v for v in (self.indexed_variables, self.named_variables) if v is not None
+                ]
+                if values:
+                    return sum(values)
+                return None
+
+    @property
+    def next_start(self) -> int | None:
+        if self.start is None or self.count is None:
+            return None
+        start = self.start or 0
+        loaded = len(self.variables)
+        total = self.total
+        if loaded <= 0:
+            return None
+        next_value = start + loaded
+        if total is not None and next_value >= total:
+            return None
+        if self.count is not None and loaded < self.count and total is None:
+            return None
+        return next_value
+
+
+@dataclass(frozen=True, slots=True)
+class DapCapabilities:
+    supports_variable_paging: bool = False
+    supports_set_variable: bool = False
+    supports_set_expression: bool = False
 
 
 @dataclass(frozen=True, slots=True)
@@ -181,12 +231,14 @@ class SessionSnapshot:
     stop_description: str | None = None
     exception_info: ExceptionInfo | None = None
     locals: tuple[VariableInfo, ...] = ()
+    locals_reference: int | None = None
     watches: tuple[WatchInfo, ...] = ()
     breakpoints: tuple[BreakpointInfo, ...] = ()
     transcript: tuple[str, ...] = ()
     task_graph: TaskGraphInfo | None = None
     selected_task_id: str | None = None
     task_view_mode: TaskViewMode = TaskViewMode.FLAT
+    capabilities: DapCapabilities = DapCapabilities()
 
 
 SessionListener = Callable[[SessionSnapshot], None]
@@ -267,6 +319,28 @@ class SafeAttachManager(SessionManager, Protocol):
 @runtime_checkable
 class VariablesManager(SessionManager, Protocol):
     async def get_variables(self, variables_reference: int) -> tuple[VariableInfo, ...]: ...
+
+
+@runtime_checkable
+class PagedVariablesManager(VariablesManager, Protocol):
+    async def get_variables_page(
+        self,
+        variables_reference: int,
+        *,
+        start: int | None = None,
+        count: int | None = None,
+        filter: str | None = None,
+    ) -> VariablePage: ...
+
+
+@runtime_checkable
+class SetVariableManager(SessionManager, Protocol):
+    async def set_variable(
+        self,
+        variables_reference: int,
+        name: str,
+        value: str,
+    ) -> VariableInfo: ...
 
 
 @runtime_checkable

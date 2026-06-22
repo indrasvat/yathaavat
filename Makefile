@@ -70,6 +70,14 @@ shux-smoke: shux-install ## Drive TUI with shux + capture color screenshot
 			> .shux/out/yathaavat-smoke.png; \
 		printf "$(COLOR_GREEN)OK$(COLOR_RESET) Wrote .shux/out/yathaavat-smoke.png\n"
 
+.PHONY: inspector2-smoke
+inspector2-smoke: shux-install ## Run Inspector 2.0 shux visual smoke
+	@uv run --python $(PYTHON) --script .shux/scripts/inspector2_smoke.py
+
+.PHONY: drishya-vivecaka
+drishya-vivecaka: shux-install ## Run Dṛśya-Vivecaka Inspector 2.0 QA gate
+	@uv run --python $(PYTHON) --script .shux/scripts/drishya_vivecaka_gate.py
+
 .PHONY: test
 test: ## Run tests (pytest)
 	@uv run --python $(PYTHON) pytest

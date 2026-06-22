@@ -41,6 +41,34 @@ class TextualUiHost(UiHost):
         if callable(action):
             self._app.call_later(action)
 
+    def focus_locals(self) -> None:
+        if self._app is None:
+            return
+        action = getattr(self._app, "action_focus_locals", None)
+        if callable(action):
+            self._app.call_later(action)
+
+    def focus_locals_filter(self) -> None:
+        if self._app is None:
+            return
+        action = getattr(self._app, "action_focus_locals_filter", None)
+        if callable(action):
+            self._app.call_later(action)
+
+    def expand_selected_local(self) -> None:
+        if self._app is None:
+            return
+        action = getattr(self._app, "action_expand_selected_local", None)
+        if callable(action):
+            self._app.call_later(action)
+
+    def edit_selected_local(self) -> None:
+        if self._app is None:
+            return
+        action = getattr(self._app, "action_edit_selected_local", None)
+        if callable(action):
+            self._app.call_later(action)
+
     def push_screen(self, screen: Screen[object]) -> None:
         if self._app is None:
             return

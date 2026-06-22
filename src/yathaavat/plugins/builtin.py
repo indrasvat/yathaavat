@@ -202,6 +202,51 @@ class BuiltinPlugin(Plugin):
         ctx.commands.register(
             Command(
                 CommandSpec(
+                    id="view.locals",
+                    title="Focus Locals",
+                    summary="Move keyboard focus to the Locals inspector.",
+                    default_keys=("ctrl+l",),
+                ),
+                handler=host.focus_locals,
+            )
+        )
+
+        ctx.commands.register(
+            Command(
+                CommandSpec(
+                    id="view.locals.filter",
+                    title="Filter Locals",
+                    summary="Move keyboard focus to the Locals filter input.",
+                ),
+                handler=host.focus_locals_filter,
+            )
+        )
+
+        ctx.commands.register(
+            Command(
+                CommandSpec(
+                    id="view.locals.expand",
+                    title="Expand Selected Local",
+                    summary="Expand the selected local variable or load its next page.",
+                ),
+                handler=host.expand_selected_local,
+            )
+        )
+
+        ctx.commands.register(
+            Command(
+                CommandSpec(
+                    id="view.locals.edit",
+                    title="Edit Selected Local",
+                    summary="Open an editor for the selected local variable value.",
+                ),
+                handler=host.edit_selected_local,
+            )
+        )
+
+        ctx.commands.register(
+            Command(
+                CommandSpec(
                     id="debug.continue",
                     title="Continue",
                     summary="Resume execution (prototype).",
@@ -441,6 +486,7 @@ class BuiltinPlugin(Plugin):
                 id="builtin.exception",
                 title="Exception",
                 slot=Slot.RIGHT,
+                order=20,
                 factory=lambda _ctx: ExceptionPanel(ctx=_ctx),
             )
         )
@@ -449,6 +495,7 @@ class BuiltinPlugin(Plugin):
                 id="builtin.locals",
                 title="Locals",
                 slot=Slot.RIGHT,
+                order=0,
                 factory=lambda _ctx: LocalsPanel(ctx=_ctx),
             )
         )
@@ -457,6 +504,7 @@ class BuiltinPlugin(Plugin):
                 id="builtin.watches",
                 title="Watches",
                 slot=Slot.RIGHT,
+                order=30,
                 factory=lambda _ctx: WatchesPanel(ctx=_ctx),
             )
         )
@@ -465,6 +513,7 @@ class BuiltinPlugin(Plugin):
                 id="builtin.breakpoints",
                 title="Breakpoints",
                 slot=Slot.RIGHT,
+                order=10,
                 factory=lambda _ctx: BreakpointsPanel(ctx=_ctx),
             )
         )

@@ -17,6 +17,7 @@ from yathaavat.core import (
     SessionStore,
     TaskGraphInfo,
     VariableInfo,
+    VariablePage,
     WidgetRegistry,
 )
 from yathaavat.core.services import ServiceRegistry
@@ -29,6 +30,10 @@ class RecordingHost:
     exited: bool = False
     zooms: int = 0
     source_find_opens: int = 0
+    locals_focuses: int = 0
+    locals_filter_focuses: int = 0
+    local_expands: int = 0
+    local_edits: int = 0
     popped: int = 0
 
     def notify(self, message: str, *, timeout: float = 1.2) -> None:
@@ -43,6 +48,18 @@ class RecordingHost:
     def open_source_find(self) -> None:
         self.source_find_opens += 1
 
+    def focus_locals(self) -> None:
+        self.locals_focuses += 1
+
+    def focus_locals_filter(self) -> None:
+        self.locals_filter_focuses += 1
+
+    def expand_selected_local(self) -> None:
+        self.local_expands += 1
+
+    def edit_selected_local(self) -> None:
+        self.local_edits += 1
+
     def push_screen(self, screen: Screen[Any]) -> None:
         self.screens.append(screen)
 
@@ -56,6 +73,9 @@ class RecordingManager:
     evaluate_result: str = "result"
     silent_results: dict[str, str] = field(default_factory=dict)
     variables: dict[int, tuple[VariableInfo, ...]] = field(default_factory=dict)
+    variable_pages: dict[tuple[int, int | None, int | None, str | None], VariablePage] = field(
+        default_factory=dict
+    )
     completions: tuple[CompletionItem, ...] = ()
     fail: dict[str, Exception] = field(default_factory=dict)
     refreshed_graph: TaskGraphInfo | None = None
@@ -136,6 +156,34 @@ class RecordingManager:
     async def get_variables(self, variables_reference: int) -> tuple[VariableInfo, ...]:
         self._record("get_variables", variables_reference)
         return self.variables.get(variables_reference, ())
+
+    async def get_variables_page(
+        self,
+        variables_reference: int,
+        *,
+        start: int | None = None,
+        count: int | None = None,
+        filter: str | None = None,
+    ) -> VariablePage:
+        self._record("get_variables_page", variables_reference, start, count, filter)
+        key = (variables_reference, start, count, filter)
+        if key in self.variable_pages:
+            return self.variable_pages[key]
+        variables = self.variables.get(variables_reference, ())
+        if start is None and count is None:
+            return VariablePage(variables=variables)
+        begin = start or 0
+        end = None if count is None else begin + count
+        return VariablePage(variables=variables[begin:end], indexed_variables=len(variables))
+
+    async def set_variable(
+        self,
+        variables_reference: int,
+        name: str,
+        value: str,
+    ) -> VariableInfo:
+        self._record("set_variable", variables_reference, name, value)
+        return VariableInfo(name=name, value=value)
 
     async def complete(self, text: str, *, cursor: int) -> tuple[CompletionItem, ...]:
         self._record("complete", text, cursor)

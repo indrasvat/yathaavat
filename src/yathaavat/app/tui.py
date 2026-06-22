@@ -8,7 +8,7 @@ from typing import ClassVar
 
 from textual import events
 from textual.app import App, ComposeResult
-from textual.binding import BindingType
+from textual.binding import Binding, BindingType
 from textual.containers import Container, Horizontal
 
 from yathaavat.app.chrome import HelpLine, StatusLine, StatusSnapshot
@@ -128,6 +128,12 @@ class YathaavatApp(App[None]):
     #exc_tree > .tree--guides { color: $fg_dim; }
 
     #locals_table { height: 1fr; background: $bg; }
+    #locals_filter {
+      height: 1;
+      border: none;
+      background: $bg_panel_muted;
+      padding: 0 1;
+    }
     #watches_table { height: 1fr; background: $bg; }
     #breakpoints_table { height: 1fr; background: $bg; }
 
@@ -280,6 +286,20 @@ class YathaavatApp(App[None]):
     #watch_status { color: $fg_muted; width: 8; }
     #watch_hint { margin-top: 0; color: $fg_muted; height: 1; }
 
+    #var_root {
+      dock: bottom;
+      margin: 0 2 1 2;
+      width: 1fr;
+      max-width: 120;
+      height: 7;
+      border: round $border_modal;
+      background: $bg_modal;
+      padding: 1 1;
+    }
+    #var_title { color: $accent; height: 1; }
+    #var_input { margin-top: 1; }
+    #var_hint { margin-top: 1; color: $fg_muted; height: 1; }
+
     /* Inputs: compact by default, obvious focus. */
     Input { background: $bg_panel_muted; color: $fg; border: tall $border; padding: 0 1; }
     Input:focus { border: tall $border_focus; }
@@ -307,6 +327,7 @@ class YathaavatApp(App[None]):
 
     BINDINGS: ClassVar[list[BindingType]] = [
         ("ctrl+p", "open_palette", "Palette"),
+        Binding("alt+l", "focus_locals", "Locals", priority=True),
         ("f6", "focus_next", "Focus"),
         ("shift+f6", "focus_previous", "Focus (prev)"),
         ("ctrl+\\", "command('session.disconnect')", "Disconnect"),
@@ -473,6 +494,50 @@ class YathaavatApp(App[None]):
 
         self.notify("Find is not available.", timeout=2.0)
 
+    def action_focus_locals(self) -> None:
+        try:
+            table = self.query_one("#locals_table")
+        except Exception:
+            self.notify("Locals panel is not available.", timeout=2.0)
+            return
+        self.call_after_refresh(table.focus)
+
+    def action_focus_locals_filter(self) -> None:
+        try:
+            filter_input = self.query_one("#locals_filter")
+        except Exception:
+            self.notify("Locals filter is not available.", timeout=2.0)
+            return
+        self.call_after_refresh(filter_input.focus)
+
+    async def action_expand_selected_local(self) -> None:
+        try:
+            table = self.query_one("#locals_table")
+        except Exception:
+            self.notify("Locals panel is not available.", timeout=2.0)
+            return
+        expand = getattr(table, "action_toggle_expand", None)
+        if not callable(expand):
+            self.notify("Locals expansion is not available.", timeout=2.0)
+            return
+        result = expand()
+        if result is not None:
+            await result
+
+    async def action_edit_selected_local(self) -> None:
+        try:
+            table = self.query_one("#locals_table")
+        except Exception:
+            self.notify("Locals panel is not available.", timeout=2.0)
+            return
+        edit = getattr(table, "action_edit_value", None)
+        if not callable(edit):
+            self.notify("Variable editing is not available.", timeout=2.0)
+            return
+        result = edit()
+        if result is not None:
+            await result
+
     def action_toggle_zoom(self) -> None:
         root = self._root_container or self.query_one("#root", Container)
         current = self._zoom_mode
@@ -576,6 +641,10 @@ def _help_text(ctx: AppContext) -> str:
         label("session.disconnect", "disconnect"),
         label("session.terminate", "terminate"),
         label("view.zoom", "zoom"),
+        label("view.locals", "locals"),
+        label("view.locals.filter", "filter locals"),
+        label("view.locals.expand", "expand local"),
+        label("view.locals.edit", "edit local"),
         label("debug.continue", "continue"),
         label("debug.run_to_cursor", "run-to-cursor"),
         label("debug.step_over", "next"),
