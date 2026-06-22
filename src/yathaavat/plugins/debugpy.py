@@ -9,7 +9,7 @@ import socket
 import subprocess
 import sys
 import tempfile
-from dataclasses import dataclass, field
+from dataclasses import dataclass, field, replace
 from pathlib import Path
 from secrets import token_hex
 from time import monotonic
@@ -30,6 +30,7 @@ from yathaavat.core import (
     ExceptionInfo,
     FrameInfo,
     Plugin,
+    ScopeInfo,
     SessionState,
     SessionStore,
     TaskCaptureStatus,
@@ -93,6 +94,30 @@ def _parse_variables(items: list[object]) -> list[VariableInfo]:
             )
         )
     return variables
+
+
+def _parse_scopes(items: list[object]) -> tuple[ScopeInfo, ...]:
+    scopes: list[ScopeInfo] = []
+    for item in items:
+        if not isinstance(item, dict):
+            continue
+        name = item.get("name")
+        ref = item.get("variablesReference")
+        if not isinstance(name, str) or not isinstance(ref, int):
+            continue
+        indexed = item.get("indexedVariables")
+        named = item.get("namedVariables")
+        expensive = item.get("expensive")
+        scopes.append(
+            ScopeInfo(
+                name=name,
+                variables_reference=ref,
+                expensive=expensive if isinstance(expensive, bool) else False,
+                indexed_variables=indexed if isinstance(indexed, int) else None,
+                named_variables=named if isinstance(named, int) else None,
+            )
+        )
+    return tuple(scopes)
 
 
 def _initialize_arguments() -> dict[str, object]:
@@ -429,6 +454,9 @@ class DebugpySessionManager(SessionManager):
         self.store.update(
             state=SessionState.RUNNING,
             frames=(),
+            scopes=(),
+            selected_scope_name=None,
+            variables_generation=self.store.snapshot().variables_generation + 1,
             locals=(),
             locals_reference=None,
             selected_frame_id=None,
@@ -1016,6 +1044,9 @@ class DebugpySessionManager(SessionManager):
             stop_reason=None,
             stop_description=None,
             exception_info=None,
+            scopes=(),
+            selected_scope_name=None,
+            variables_generation=snap.variables_generation + 1,
             locals=(),
             locals_reference=None,
             watches=reset_watches,
@@ -1043,6 +1074,9 @@ class DebugpySessionManager(SessionManager):
                 self.store.update(
                     state=SessionState.RUNNING,
                     frames=(),
+                    scopes=(),
+                    selected_scope_name=None,
+                    variables_generation=self.store.snapshot().variables_generation + 1,
                     locals=(),
                     locals_reference=None,
                     selected_frame_id=None,
@@ -1208,35 +1242,74 @@ class DebugpySessionManager(SessionManager):
             await self._refresh_locals(selected_frame)
 
     async def _refresh_locals(self, frame_id: int) -> None:
+        self._variable_counts.clear()
         dap = self._require_dap()
+        dap_id = id(dap)
         scopes_resp = await dap.request("scopes", {"frameId": frame_id})
-        scopes = _as_list(_body(scopes_resp).get("scopes"))
-        locals_ref: int | None = None
-        indexed_count: int | None = None
-        named_count: int | None = None
-        for scope in scopes:
-            if not isinstance(scope, dict):
-                continue
-            name = scope.get("name")
-            ref = scope.get("variablesReference")
-            if isinstance(name, str) and name.lower() == "locals" and isinstance(ref, int):
-                locals_ref = ref
-                indexed = scope.get("indexedVariables")
-                named = scope.get("namedVariables")
-                indexed_count = indexed if isinstance(indexed, int) else None
-                named_count = named if isinstance(named, int) else None
-                break
-        if locals_ref is None:
-            self.store.update(locals=(), locals_reference=None)
+        scopes = _parse_scopes(_as_list(_body(scopes_resp).get("scopes")))
+        if not self._is_current_variables_refresh(frame_id, dap_id):
+            return
+        snapshot = self.store.snapshot()
+        generation = snapshot.variables_generation + 1
+        if not scopes:
+            self.store.update(
+                scopes=(),
+                selected_scope_name=None,
+                variables_generation=generation,
+                locals=(),
+                locals_reference=None,
+            )
             return
 
-        self._variable_counts[locals_ref] = (indexed_count, named_count)
-        vars_resp = await dap.request("variables", {"variablesReference": locals_ref})
+        for scope in scopes:
+            self._variable_counts[scope.variables_reference] = (
+                scope.indexed_variables,
+                scope.named_variables,
+            )
+
+        previous_name = snapshot.selected_scope_name
+        selected_scope = next((scope for scope in scopes if scope.name == previous_name), None)
+        if selected_scope is None:
+            selected_scope = next(
+                (scope for scope in scopes if scope.name.casefold() == "locals"),
+                scopes[0],
+            )
+
+        vars_resp = await dap.request(
+            "variables", {"variablesReference": selected_scope.variables_reference}
+        )
         variables = tuple(_parse_variables(_as_list(_body(vars_resp).get("variables"))))
+        if not self._is_current_variables_refresh(frame_id, dap_id):
+            return
+        if self.store.snapshot().selected_scope_name != previous_name:
+            return
         self._remember_variable_counts(variables)
+        selected_page = VariablePage(
+            variables=variables,
+            indexed_variables=selected_scope.indexed_variables,
+            named_variables=selected_scope.named_variables,
+        )
+        scoped = tuple(
+            scope
+            if scope.name != selected_scope.name
+            else replace(scope, variables=variables, page=selected_page)
+            for scope in scopes
+        )
         self.store.update(
+            scopes=scoped,
+            selected_scope_name=selected_scope.name,
+            variables_generation=generation,
             locals=variables,
-            locals_reference=locals_ref,
+            locals_reference=selected_scope.variables_reference,
+        )
+
+    def _is_current_variables_refresh(self, frame_id: int, dap_id: int) -> bool:
+        snapshot = self.store.snapshot()
+        return (
+            self._dap is not None
+            and id(self._dap) == dap_id
+            and snapshot.state == SessionState.PAUSED
+            and snapshot.selected_frame_id == frame_id
         )
 
     async def _sync_all_breakpoints(self) -> None:

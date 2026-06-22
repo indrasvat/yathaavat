@@ -128,6 +128,11 @@ class YathaavatApp(App[None]):
     #exc_tree > .tree--guides { color: $fg_dim; }
 
     #locals_table { height: 1fr; background: $bg; }
+    #scope_select {
+      height: 1;
+      border: none;
+      background: $bg_panel_muted;
+    }
     #locals_filter {
       height: 1;
       border: none;

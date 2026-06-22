@@ -13,6 +13,7 @@ from yathaavat.core import (
     BreakpointInfo,
     DapCapabilities,
     FrameInfo,
+    ScopeInfo,
     SessionState,
     SessionStore,
     TaskCaptureStatus,
@@ -32,6 +33,7 @@ from yathaavat.plugins.debugpy import (
     _initialize_arguments,
     _is_pyruntime_lookup_failure,
     _is_user_path,
+    _parse_scopes,
     _parse_variables,
 )
 
@@ -89,6 +91,25 @@ def test_response_helpers_ignore_malformed_payloads() -> None:
             indexed_variables=3,
         )
     ]
+    assert _parse_scopes(
+        [
+            {
+                "name": "Globals",
+                "variablesReference": 12,
+                "expensive": True,
+                "namedVariables": 3,
+            },
+            {"name": "missing-ref"},
+            "bad",
+        ]
+    ) == (
+        ScopeInfo(
+            name="Globals",
+            variables_reference=12,
+            expensive=True,
+            named_variables=3,
+        ),
+    )
 
 
 def test_initialize_arguments_advertise_variable_paging() -> None:
@@ -167,6 +188,7 @@ def test_refresh_threads_frames_and_locals_choose_user_frame() -> None:
     async def run() -> None:
         source = str(Path.cwd() / "src" / "yathaavat" / "cli.py")
         store = SessionStore()
+        store.update(state=SessionState.PAUSED)
         manager = _manager(store)
         dap = _TestDap(
             {
@@ -200,7 +222,25 @@ def test_refresh_threads_frames_and_locals_choose_user_frame() -> None:
                         }
                     }
                 ],
-                "scopes": [{"body": {"scopes": [{"name": "Locals", "variablesReference": 99}]}}],
+                "scopes": [
+                    {
+                        "body": {
+                            "scopes": [
+                                {
+                                    "name": "Globals",
+                                    "variablesReference": 100,
+                                    "expensive": True,
+                                    "namedVariables": 8,
+                                },
+                                {
+                                    "name": "Locals",
+                                    "variablesReference": 99,
+                                    "namedVariables": 1,
+                                },
+                            ]
+                        }
+                    }
+                ],
                 "variables": [
                     {
                         "body": {
@@ -227,8 +267,173 @@ def test_refresh_threads_frames_and_locals_choose_user_frame() -> None:
         assert snap.selected_thread_id == 1
         assert snap.selected_frame_id == 11
         assert snap.source_path == source
+        assert snap.selected_scope_name == "Locals"
+        assert snap.variables_generation == 1
+        assert snap.scopes == (
+            ScopeInfo(
+                name="Globals",
+                variables_reference=100,
+                expensive=True,
+                named_variables=8,
+            ),
+            ScopeInfo(
+                name="Locals",
+                variables_reference=99,
+                named_variables=1,
+                variables=(VariableInfo(name="answer", value="42", type="int"),),
+                page=VariablePage(
+                    variables=(VariableInfo(name="answer", value="42", type="int"),),
+                    named_variables=1,
+                ),
+            ),
+        )
         assert snap.locals == (VariableInfo(name="answer", value="42", type="int"),)
         assert snap.locals_reference == 99
+
+    asyncio.run(run())
+
+
+def test_refresh_locals_ignores_stale_variables_after_resume() -> None:
+    class BlockingVariablesDap(_TestDap):
+        def __init__(self) -> None:
+            super().__init__()
+            self.variables_started = asyncio.Event()
+            self.release_variables = asyncio.Event()
+
+        async def request(
+            self, command: str, arguments: dict[str, object], timeout_s: float | None = None
+        ) -> dict[str, object]:
+            self.requests.append((command, arguments, timeout_s))
+            if command == "scopes":
+                return {
+                    "body": {
+                        "scopes": [
+                            {
+                                "name": "Locals",
+                                "variablesReference": 7,
+                                "namedVariables": 1,
+                            }
+                        ]
+                    }
+                }
+            if command == "variables":
+                self.variables_started.set()
+                await self.release_variables.wait()
+                return {
+                    "body": {
+                        "variables": [
+                            {
+                                "name": "late",
+                                "value": "99",
+                                "type": "int",
+                                "variablesReference": 0,
+                            }
+                        ]
+                    }
+                }
+            return {"body": {}}
+
+    async def run() -> None:
+        store = SessionStore()
+        store.update(state=SessionState.PAUSED, selected_frame_id=7)
+        manager = _manager(store)
+        dap = BlockingVariablesDap()
+        _set_dap(manager, dap)
+
+        refresh_task = asyncio.create_task(manager._refresh_locals(7))
+        await asyncio.wait_for(dap.variables_started.wait(), timeout=1)
+        generation = store.snapshot().variables_generation + 1
+        store.update(
+            state=SessionState.RUNNING,
+            selected_frame_id=None,
+            scopes=(),
+            selected_scope_name=None,
+            locals=(),
+            locals_reference=None,
+            variables_generation=generation,
+        )
+        dap.release_variables.set()
+        await asyncio.wait_for(refresh_task, timeout=1)
+
+        snap = store.snapshot()
+        assert snap.state is SessionState.RUNNING
+        assert snap.selected_frame_id is None
+        assert snap.scopes == ()
+        assert snap.selected_scope_name is None
+        assert snap.locals == ()
+        assert snap.locals_reference is None
+        assert snap.variables_generation == generation
+
+    asyncio.run(run())
+
+
+def test_refresh_locals_ignores_stale_variables_after_scope_switch() -> None:
+    class BlockingScopeDap(_TestDap):
+        def __init__(self) -> None:
+            super().__init__()
+            self.variables_started = asyncio.Event()
+            self.release_variables = asyncio.Event()
+
+        async def request(
+            self, command: str, arguments: dict[str, object], timeout_s: float | None = None
+        ) -> dict[str, object]:
+            self.requests.append((command, arguments, timeout_s))
+            if command == "scopes":
+                return {
+                    "body": {
+                        "scopes": [
+                            {
+                                "name": "Locals",
+                                "variablesReference": 7,
+                                "namedVariables": 1,
+                            },
+                            {
+                                "name": "Globals",
+                                "variablesReference": 8,
+                                "namedVariables": 1,
+                            },
+                        ]
+                    }
+                }
+            if command == "variables":
+                self.variables_started.set()
+                await self.release_variables.wait()
+                return {
+                    "body": {
+                        "variables": [
+                            {
+                                "name": "late_local",
+                                "value": "99",
+                                "type": "int",
+                                "variablesReference": 0,
+                            }
+                        ]
+                    }
+                }
+            return {"body": {}}
+
+    async def run() -> None:
+        store = SessionStore()
+        store.update(
+            state=SessionState.PAUSED,
+            selected_frame_id=7,
+            selected_scope_name="Locals",
+        )
+        manager = _manager(store)
+        dap = BlockingScopeDap()
+        _set_dap(manager, dap)
+
+        refresh_task = asyncio.create_task(manager._refresh_locals(7))
+        await asyncio.wait_for(dap.variables_started.wait(), timeout=1)
+        store.update(selected_scope_name="Globals")
+        dap.release_variables.set()
+        await asyncio.wait_for(refresh_task, timeout=1)
+
+        snap = store.snapshot()
+        assert snap.selected_scope_name == "Globals"
+        assert snap.scopes == ()
+        assert snap.locals == ()
+        assert snap.locals_reference is None
 
     asyncio.run(run())
 

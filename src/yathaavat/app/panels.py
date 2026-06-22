@@ -3,7 +3,7 @@ from __future__ import annotations
 import asyncio
 import os
 from collections.abc import Awaitable, Callable
-from dataclasses import dataclass
+from dataclasses import dataclass, replace
 from pathlib import Path
 from typing import ClassVar, cast
 
@@ -17,7 +17,7 @@ from textual.document._document import Document, Selection
 from textual.events import MouseDown
 from textual.screen import ModalScreen
 from textual.strip import Strip
-from textual.widgets import DataTable, Input, ListItem, ListView, RichLog, Static, TextArea
+from textual.widgets import DataTable, Input, ListItem, ListView, RichLog, Select, Static, TextArea
 
 from yathaavat.app.breakpoint import BreakpointEditDialog
 from yathaavat.app.expression import ExpressionInput
@@ -35,6 +35,7 @@ from yathaavat.core import (
     AppContext,
     BreakpointInfo,
     FrameInfo,
+    ScopeInfo,
     SessionManager,
     SessionSnapshot,
     SessionStore,
@@ -675,6 +676,7 @@ class LocalsTable(DataTable[str]):
     BINDINGS: ClassVar[list[BindingType]] = [
         ("enter", "toggle_expand", "Expand"),
         ("/", "focus_filter", "Filter"),
+        ("g", "next_scope", "Next Scope"),
         ("e", "edit_value", "Edit"),
         ("y", "copy_value", "Copy Value"),
     ]
@@ -690,7 +692,10 @@ class LocalsTable(DataTable[str]):
         self._ctx = ctx
         self._page_size = page_size
         self._root: tuple[VariableInfo, ...] = ()
+        self._root_page: VariablePage | None = None
         self._root_parent_reference: int | None = None
+        self._generation: int | None = None
+        self._empty_label = "No locals."
         self._expanded: set[int] = set()
         self._cache: dict[int, tuple[VariableInfo, ...]] = {}
         self._pages: dict[int, VariablePage] = {}
@@ -702,29 +707,61 @@ class LocalsTable(DataTable[str]):
         self.add_columns("Name", "Type", "Value")
 
     def set_root(
-        self, locals_: tuple[VariableInfo, ...], *, parent_reference: int | None = None
+        self,
+        locals_: tuple[VariableInfo, ...],
+        *,
+        parent_reference: int | None = None,
+        root_page: VariablePage | None = None,
+        generation: int | None = None,
+        empty_label: str = "No locals.",
     ) -> None:
-        if locals_ == self._root and parent_reference == self._root_parent_reference:
+        generation_changed = generation is not None and generation != self._generation
+        if (
+            locals_ == self._root
+            and parent_reference == self._root_parent_reference
+            and root_page == self._root_page
+            and empty_label == self._empty_label
+            and not generation_changed
+        ):
             return
-        if parent_reference == self._root_parent_reference:
+        self._empty_label = empty_label
+        if generation is not None:
+            self._generation = generation
+        if not generation_changed and parent_reference == self._root_parent_reference:
             changed_refs = _changed_variable_references(self._root, locals_)
             for ref in changed_refs:
                 self._clear_variable_tree(ref)
             self._root = locals_
+            self._root_page = root_page
             self._rebuild()
             return
         self._root = locals_
+        self._root_page = root_page
         self._root_parent_reference = parent_reference
+        self._clear_all_variable_state()
+        self._rebuild()
+
+    def _clear_all_variable_state(self) -> None:
         self._expanded.clear()
         self._cache.clear()
         self._pages.clear()
         self._visible_counts.clear()
         self._fetching.clear()
         self._next_fetch_token += 1
-        self._rebuild()
 
     def visible_nodes(self) -> tuple[_VarNode, ...]:
         return tuple(self._flat)
+
+    @property
+    def page_size(self) -> int:
+        return self._page_size
+
+    def has_loaded_root(self, *, parent_reference: int, generation: int) -> bool:
+        return (
+            self._root_parent_reference == parent_reference
+            and self._generation == generation
+            and self._root_page is not None
+        )
 
     def set_filter(self, value: str) -> None:
         next_filter = value.strip().casefold()
@@ -762,7 +799,7 @@ class LocalsTable(DataTable[str]):
             token = self._begin_fetch(ref)
             try:
                 self._ctx.host.notify("Loading variables…", timeout=1.0)
-                page = await self._get_variable_page(manager, ref, start=0, count=self._page_size)
+                page = await self.get_variable_page(manager, ref, start=0, count=self._page_size)
                 if not self._is_current_fetch(ref, token):
                     return
                 self._pages[ref] = page
@@ -788,6 +825,9 @@ class LocalsTable(DataTable[str]):
         start = node.load_more_start
         if ref is None or start is None:
             return
+        if ref == self._root_parent_reference:
+            await self._load_more_root(ref, start)
+            return
         current = self._cache.get(ref) or ()
         if start < len(current):
             self._visible_counts[ref] = min(start + self._page_size, len(current))
@@ -805,7 +845,7 @@ class LocalsTable(DataTable[str]):
         token = self._begin_fetch(ref)
         try:
             self._ctx.host.notify("Loading variables…", timeout=1.0)
-            page = await self._get_variable_page(manager, ref, start=start, count=self._page_size)
+            page = await self.get_variable_page(manager, ref, start=start, count=self._page_size)
             if not self._is_current_fetch(ref, token) or ref not in self._expanded:
                 return
         except Exception as exc:
@@ -826,7 +866,36 @@ class LocalsTable(DataTable[str]):
         self._visible_counts[ref] = len(self._cache[ref])
         self._rebuild()
 
-    async def _get_variable_page(
+    async def _load_more_root(self, ref: int, start: int) -> None:
+        if start < len(self._root):
+            return
+        if ref in self._fetching:
+            return
+        manager = _get_manager(self._ctx)
+        if not isinstance(manager, VariablesManager):
+            self._ctx.host.notify(
+                "Variable expansion is not supported by this session.",
+                timeout=2.5,
+            )
+            return
+        token = self._begin_fetch(ref)
+        try:
+            self._ctx.host.notify("Loading variables…", timeout=1.0)
+            page = await self.get_variable_page(manager, ref, start=start, count=self._page_size)
+            if not self._is_current_fetch(ref, token):
+                return
+        except Exception as exc:
+            self._ctx.host.notify(str(exc), timeout=2.5)
+            return
+        finally:
+            self._finish_fetch(ref, token)
+        new_variables = _new_variables(self._root, page.variables)
+        self._root = (*self._root, *new_variables)
+        self._root_page = _root_scope_page(self._root, page)
+        self._persist_root_update(ref)
+        self._rebuild()
+
+    async def get_variable_page(
         self,
         manager: VariablesManager,
         variables_reference: int,
@@ -855,10 +924,16 @@ class LocalsTable(DataTable[str]):
         self._ctx.host.notify("Copied value.", timeout=1.2)
 
     def action_focus_filter(self) -> None:
-        panel = self.parent
-        focus_filter = getattr(panel, "focus_filter", None)
-        if callable(focus_filter):
-            focus_filter()
+        try:
+            self.query_ancestor(LocalsPanel).focus_filter()
+        except NoMatches:
+            return
+
+    def action_next_scope(self) -> None:
+        try:
+            self.query_ancestor(LocalsPanel).next_scope()
+        except NoMatches:
+            return
 
     async def action_edit_value(self) -> None:
         node = self._selected_node()
@@ -894,6 +969,9 @@ class LocalsTable(DataTable[str]):
             self._root = tuple(
                 updated if child.name == node.name else child for child in self._root
             )
+            if self._root_page is not None:
+                self._root_page = _root_scope_page(self._root, self._root_page)
+            self._persist_root_update(parent_ref)
         else:
             self._cache[parent_ref] = updated_children
         if node.variables_reference > 0:
@@ -904,6 +982,26 @@ class LocalsTable(DataTable[str]):
         self._ctx.host.notify(f"Updated {node.name}.", timeout=1.2)
         self._rebuild()
         return True
+
+    def _persist_root_update(self, parent_ref: int) -> None:
+        try:
+            store = _get_store(self._ctx)
+        except KeyError:
+            return
+        snapshot = store.snapshot()
+        page = self._root_page
+        if page is not None:
+            page = _root_scope_page(self._root, page)
+        scopes = tuple(
+            replace(scope, variables=self._root, page=page)
+            if scope.variables_reference == parent_ref
+            else scope
+            for scope in snapshot.scopes
+        )
+        changes: dict[str, object] = {"scopes": scopes}
+        if snapshot.locals_reference == parent_ref:
+            changes["locals"] = self._root
+        store.update(**changes)
 
     def _clear_variable_tree(self, ref: int) -> None:
         children = self._cache.pop(ref, None) or ()
@@ -943,7 +1041,7 @@ class LocalsTable(DataTable[str]):
         self.clear(columns=False)
         self._flat = []
         if not self._root:
-            self.add_row("No locals.", "", "")
+            self.add_row(self._empty_label, "", "")
             return
 
         def add_vars(
@@ -999,6 +1097,23 @@ class LocalsTable(DataTable[str]):
                 )
 
         add_vars(self._root, depth=0, parent_reference=self._root_parent_reference)
+        if self._root_parent_reference is not None and self._root_page is not None:
+            next_start = self._root_page.next_start
+            if next_start is not None:
+                total = self._root_page.total
+                total_label = total or "?"
+                load_node = _VarNode(
+                    name="Load more...",
+                    value=f"{next_start}/{total_label} loaded",
+                    type="",
+                    variables_reference=0,
+                    depth=0,
+                    load_more_reference=self._root_parent_reference,
+                    load_more_start=next_start,
+                )
+                self._add_node(load_node, "… Load more...", "", load_node.value)
+        if self._filter and not self._flat:
+            self.add_row("No matching variables.", "", "")
         self._restore_cursor(selected_key, previous_row)
 
     def _add_node(self, node: _VarNode, name: str, type_: str, value: str) -> None:
@@ -1068,6 +1183,23 @@ def _new_variables(
         return incoming
     current_names = {variable.name for variable in current}
     return tuple(variable for variable in incoming if variable.name not in current_names)
+
+
+def _root_scope_page(
+    variables: tuple[VariableInfo, ...],
+    page: VariablePage,
+) -> VariablePage:
+    count = page.count
+    if page.total is None and page.count is not None and len(page.variables) < page.count:
+        count = len(variables) + 1
+    return VariablePage(
+        variables=variables,
+        start=0 if count is not None else None,
+        count=count,
+        filter=page.filter,
+        indexed_variables=page.indexed_variables,
+        named_variables=page.named_variables,
+    )
 
 
 def _changed_variable_references(
@@ -1158,11 +1290,20 @@ class _LocalsFilterInput(Input):
 class LocalsPanel(Container):
     def __init__(self, *, ctx: AppContext) -> None:
         super().__init__()
+        self._ctx = ctx
         self._store = _get_store(ctx)
         self._unsubscribe: Callable[[], None] | None = None
         self._table = LocalsTable(ctx=ctx, page_size=_locals_page_size())
+        self._scopes: tuple[ScopeInfo, ...] = ()
+        self._selected_scope_name: str | None = None
+        self._variables_generation: int | None = None
+        self._syncing_scope = False
+        self._scope_task: asyncio.Task[None] | None = None
+        self._scope_task_key: tuple[str, int] | None = None
+        self._scope_option_names: tuple[str, ...] = ()
 
     def compose(self) -> ComposeResult:
+        yield Select[str]((), prompt="Scope", allow_blank=True, id="scope_select", compact=True)
         yield _LocalsFilterInput(placeholder="filter locals…", id="locals_filter")
         yield self._table
 
@@ -1172,9 +1313,196 @@ class LocalsPanel(Container):
     def on_unmount(self) -> None:
         if self._unsubscribe is not None:
             self._unsubscribe()
+        if self._scope_task is not None:
+            self._scope_task.cancel()
 
     def _on_snapshot(self, snapshot: SessionSnapshot) -> None:
-        self._table.set_root(snapshot.locals, parent_reference=snapshot.locals_reference)
+        self._scopes = snapshot.scopes
+        selected = self._selected_scope_name
+        if snapshot.scopes:
+            scope_names = {scope.name for scope in snapshot.scopes}
+            if selected not in scope_names:
+                selected = snapshot.selected_scope_name or snapshot.scopes[0].name
+            if selected is None:
+                selected = snapshot.scopes[0].name
+        else:
+            selected = None
+        material_changed = (
+            snapshot.variables_generation != self._variables_generation
+            or selected != self._selected_scope_name
+        )
+        self._sync_scope_select(snapshot, selected)
+        if not snapshot.scopes:
+            self._variables_generation = snapshot.variables_generation
+            self._selected_scope_name = None
+            self._cancel_scope_task()
+            self._table.set_root(
+                snapshot.locals,
+                parent_reference=snapshot.locals_reference,
+                generation=snapshot.variables_generation,
+            )
+            return
+        if not material_changed:
+            return
+        self._variables_generation = snapshot.variables_generation
+
+        if selected is None:
+            return
+        self._show_scope(snapshot, selected)
+
+    def _sync_scope_select(self, snapshot: SessionSnapshot, selected: str | None = None) -> None:
+        select = self.query_one("#scope_select", Select)
+        self._syncing_scope = True
+        try:
+            if not snapshot.scopes:
+                if self._scope_option_names:
+                    select.set_options(())
+                    self._scope_option_names = ()
+                select.disabled = True
+                return
+            options = tuple((scope.name, scope.name) for scope in snapshot.scopes)
+            option_names = tuple(scope.name for scope in snapshot.scopes)
+            if option_names != self._scope_option_names:
+                select.set_options(options)
+                self._scope_option_names = option_names
+            select.disabled = False
+            selected = selected or self._selected_scope_name
+            if selected not in {scope.name for scope in snapshot.scopes}:
+                selected = snapshot.selected_scope_name or snapshot.scopes[0].name
+            select.value = selected
+        finally:
+            self._syncing_scope = False
+
+    @on(Select.Changed, "#scope_select")
+    def _on_scope_changed(self, event: Select.Changed) -> None:
+        if self._syncing_scope:
+            return
+        if not isinstance(event.value, str):
+            return
+        snapshot = self._store.snapshot()
+        self._show_scope(snapshot, event.value)
+
+    def _show_scope(self, snapshot: SessionSnapshot, name: str) -> None:
+        scope = next((s for s in snapshot.scopes if s.name == name), None)
+        if scope is None:
+            return
+        if (
+            self._selected_scope_name == scope.name
+            and self._variables_generation == snapshot.variables_generation
+            and self._table.has_loaded_root(
+                parent_reference=scope.variables_reference,
+                generation=snapshot.variables_generation,
+            )
+        ):
+            return
+        if (
+            self._selected_scope_name == scope.name
+            and self._scope_task is not None
+            and not self._scope_task.done()
+            and self._scope_task_key == (scope.name, snapshot.variables_generation)
+        ):
+            return
+        self._selected_scope_name = scope.name
+        if snapshot.selected_scope_name != scope.name:
+            self._store.update(selected_scope_name=scope.name)
+            snapshot = self._store.snapshot()
+        variables = (
+            snapshot.locals
+            if snapshot.locals_reference == scope.variables_reference
+            else scope.variables
+        )
+        page = scope.page
+        if page is not None:
+            variables = page.variables
+        elif variables:
+            page = VariablePage(
+                variables=variables,
+                start=0,
+                count=len(variables),
+                indexed_variables=scope.indexed_variables,
+                named_variables=scope.named_variables,
+            )
+        if page is not None:
+            self._cancel_scope_task()
+            self._table.set_root(
+                variables,
+                parent_reference=scope.variables_reference,
+                root_page=page,
+                generation=snapshot.variables_generation,
+                empty_label=f"No {scope.name} variables.",
+            )
+            return
+
+        self._table.set_root(
+            (),
+            parent_reference=scope.variables_reference,
+            generation=snapshot.variables_generation,
+            empty_label=f"Loading {scope.name} variables...",
+        )
+        self._load_scope(scope, snapshot.variables_generation)
+
+    def _load_scope(self, scope: ScopeInfo, generation: int) -> None:
+        key = (scope.name, generation)
+        if self._scope_task is not None and not self._scope_task.done():
+            if self._scope_task_key == key:
+                return
+        self._cancel_scope_task()
+        manager = _get_manager(self._ctx)
+        if not isinstance(manager, VariablesManager):
+            self._table.set_root(
+                (),
+                parent_reference=scope.variables_reference,
+                generation=generation,
+                empty_label=f"No {scope.name} variables.",
+            )
+            return
+
+        async def run() -> None:
+            try:
+                page = await self._table.get_variable_page(
+                    manager,
+                    scope.variables_reference,
+                    start=0,
+                    count=self._table.page_size,
+                )
+            except asyncio.CancelledError:
+                raise
+            except Exception as exc:
+                self._ctx.host.notify(str(exc), timeout=2.5)
+                return
+            if self._variables_generation != generation or self._selected_scope_name != scope.name:
+                return
+            root_page = _root_scope_page(page.variables, page)
+            self._persist_scope_page(scope, root_page)
+            self._table.set_root(
+                page.variables,
+                parent_reference=scope.variables_reference,
+                root_page=root_page,
+                generation=generation,
+                empty_label=f"No {scope.name} variables.",
+            )
+
+        self._scope_task_key = key
+        self._scope_task = asyncio.create_task(run())
+
+    def _persist_scope_page(self, scope: ScopeInfo, page: VariablePage) -> None:
+        snapshot = self._store.snapshot()
+        scopes = tuple(
+            replace(existing, variables=page.variables, page=page)
+            if existing.variables_reference == scope.variables_reference
+            else existing
+            for existing in snapshot.scopes
+        )
+        changes: dict[str, object] = {"scopes": scopes}
+        if snapshot.locals_reference == scope.variables_reference:
+            changes["locals"] = page.variables
+        self._store.update(**changes)
+
+    def _cancel_scope_task(self) -> None:
+        if self._scope_task is not None:
+            self._scope_task.cancel()
+            self._scope_task = None
+            self._scope_task_key = None
 
     def apply_filter(self, value: str) -> None:
         self._table.set_filter(value)
@@ -1184,6 +1512,24 @@ class LocalsPanel(Container):
 
     def focus_filter(self) -> None:
         self.query_one("#locals_filter", Input).focus()
+
+    def next_scope(self) -> None:
+        if len(self._scopes) < 2:
+            return
+        current = self._selected_scope_name or self._scopes[0].name
+        names = [scope.name for scope in self._scopes]
+        try:
+            index = names.index(current)
+        except ValueError:
+            index = -1
+        next_name = names[(index + 1) % len(names)]
+        select = self.query_one("#scope_select", Select)
+        self._syncing_scope = True
+        try:
+            select.value = next_name
+        finally:
+            self._syncing_scope = False
+        self._show_scope(self._store.snapshot(), next_name)
 
 
 class BreakpointsTable(DataTable[str]):
