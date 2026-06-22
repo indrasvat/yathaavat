@@ -5,9 +5,16 @@ from dataclasses import dataclass
 from pathlib import Path
 from typing import Any, cast
 
+from textual.geometry import Offset
 from textual.widgets import DataTable, Input, ListView, RichLog, Select, Static, TextArea
 
-from tests.support import RecordingHost, RecordingManager, SingleWidgetApp, make_context
+from tests.support import (
+    RecordingHost,
+    RecordingManager,
+    SingleScreenApp,
+    SingleWidgetApp,
+    make_context,
+)
 from yathaavat.app.expression import ExpressionInput
 from yathaavat.app.panels import (
     BreakpointsPanel,
@@ -19,6 +26,7 @@ from yathaavat.app.panels import (
     SourcePanel,
     StackPanel,
     TranscriptPanel,
+    VariableEditDialog,
     _format_breakpoint_details,
     _frame_rows,
     _language_for_path,
@@ -29,6 +37,7 @@ from yathaavat.core import (
     BreakpointInfo,
     FrameInfo,
     ScopeInfo,
+    SessionState,
     VariableInfo,
     VariablePage,
 )
@@ -165,6 +174,147 @@ def test_source_panel_loads_file_searches_and_handles_unreadable_source(tmp_path
     asyncio.run(run())
 
 
+@dataclass(slots=True)
+class _SelectionChanged:
+    text_area: TextArea
+
+
+@dataclass(slots=True)
+class _MouseEvent:
+    button: int
+    widget: object
+    offset: Offset | None
+    stopped: bool = False
+    prevented: bool = False
+
+    def get_content_offset(self, _widget: object) -> Offset | None:
+        return self.offset
+
+    def stop(self) -> None:
+        self.stopped = True
+
+    def prevent_default(self) -> None:
+        self.prevented = True
+
+
+@dataclass(slots=True)
+class _EditableNode:
+    name: str
+    value: str
+
+
+@dataclass(slots=True)
+class _InputSubmitted:
+    value: str
+
+
+class _DialogEditTable:
+    def __init__(self, *, result: bool) -> None:
+        self.result = result
+        self.calls: list[tuple[str, object]] = []
+
+    async def edit_selected_value(self, value: str, *, node: object | None = None) -> bool:
+        self.calls.append((value, node))
+        return self.result
+
+
+def test_source_panel_updates_cursor_and_toggles_breakpoint_from_gutter(
+    tmp_path: Path,
+) -> None:
+    async def run() -> None:
+        host = RecordingHost()
+        manager = RecordingManager()
+        ctx = make_context(host=host, manager=manager)
+        store = ctx.services.get(SESSION_STORE)
+        source = tmp_path / "sample.py"
+        source.write_text("alpha = 1\nbeta = 2\n", encoding="utf-8")
+
+        panel = SourcePanel(ctx=ctx)
+        async with SingleWidgetApp(panel).run_test() as pilot:
+            await pilot.pause()
+            store.update(source_path=str(source), source_line=1, source_col=1)
+            await pilot.pause()
+            editor = panel.query_one("#source_view", CodeView)
+
+            editor.cursor_location = (1, 3)
+            panel._on_cursor_moved(cast(TextArea.SelectionChanged, _SelectionChanged(editor)))
+            assert (store.snapshot().source_line, store.snapshot().source_col) == (2, 4)
+
+            gutter_click = _MouseEvent(button=1, widget=editor, offset=Offset(0, 0))
+            panel._on_gutter_click(cast(Any, gutter_click))
+            await pilot.pause()
+
+            assert ("toggle_breakpoint", (str(source.resolve()), 1)) in manager.calls
+            assert gutter_click.stopped is True
+            assert gutter_click.prevented is True
+
+            content_click = _MouseEvent(
+                button=1,
+                widget=editor,
+                offset=Offset(editor.gutter_width, 0),
+            )
+            panel._on_gutter_click(cast(Any, content_click))
+            await pilot.pause()
+            assert manager.calls.count(("toggle_breakpoint", (str(source.resolve()), 1))) == 1
+
+        no_manager = SourcePanel(ctx=make_context(host=host))
+        async with SingleWidgetApp(no_manager).run_test() as pilot:
+            await pilot.pause()
+            store2 = no_manager._store
+            store2.update(source_path=str(source), source_line=1, source_col=1)
+            await pilot.pause()
+            editor2 = no_manager.query_one("#source_view", CodeView)
+            no_session_click = _MouseEvent(button=1, widget=editor2, offset=Offset(0, 0))
+            panel_host_notifications = len(host.notifications)
+            no_manager._on_gutter_click(cast(Any, no_session_click))
+            await pilot.pause()
+
+        assert host.notifications[panel_host_notifications:] == [("No session.", 2.0)]
+
+    asyncio.run(run())
+
+
+def test_source_panel_find_bar_debounce_and_empty_source_paths(tmp_path: Path) -> None:
+    async def run() -> None:
+        host = RecordingHost()
+        ctx = make_context(host=host)
+        store = ctx.services.get(SESSION_STORE)
+        source = tmp_path / "case.py"
+        source.write_text("Alpha = 1\nalpha = 2\n", encoding="utf-8")
+
+        panel = SourcePanel(ctx=ctx)
+        async with SingleWidgetApp(panel).run_test() as pilot:
+            await pilot.pause()
+            store.update(source_path=str(source), source_line=1, source_col=1)
+            await pilot.pause()
+
+            panel.open_find()
+            panel.open_find()
+            find_input = panel.query_one("#find_input", Input)
+            assert panel.query_one("#find_root").styles.display == "block"
+
+            find_input.value = "Alpha"
+            await panel._find_debounced("stale")
+            assert str(panel.query_one("#find_status", Static).content) == ""
+
+            await panel._find_debounced("Alpha")
+            assert str(panel.query_one("#find_status", Static).content).endswith("1/1")
+
+            panel._find_in_source("alpha", direction="prev", include_current=False)
+            assert "/" in str(panel.query_one("#find_status", Static).content)
+
+            panel._find_in_source("   ", direction="next", include_current=True)
+            panel.query_one("#source_view", CodeView).text = ""
+            panel._find_in_source("alpha", direction="next", include_current=True)
+            assert host.notifications[-1] == ("No source text loaded.", 2.0)
+
+            panel._close_find()
+            panel._close_find()
+            assert panel.query_one("#find_root").styles.display == "none"
+
+    asyncio.run(run())
+
+
 def test_locals_panel_expands_variables_and_reports_unsupported() -> None:
     async def run() -> None:
         manager = RecordingManager(
@@ -188,6 +338,317 @@ def test_locals_panel_expands_variables_and_reports_unsupported() -> None:
             await pilot.pause()
             assert table.row_count == 2
             assert ("get_variables_page", (7, 0, 50, None)) in manager.calls
+
+    asyncio.run(run())
+
+
+def test_locals_table_guardrails_for_selection_filter_and_unsupported_editing() -> None:
+    async def run() -> None:
+        host = RecordingHost()
+        ctx = make_context(host=host)
+        app = SingleWidgetApp(lambda: LocalsTable(ctx=ctx, page_size=2))
+
+        async with app.run_test() as pilot:
+            await pilot.pause()
+            table = cast(LocalsTable, app.widget)
+            await table.action_toggle_expand()
+            table.action_copy_value()
+            assert host.notifications == []
+
+            table.set_root(
+                (
+                    VariableInfo(name="answer", value="42", type="int"),
+                    VariableInfo(name="payload", value="{...}", type="dict", variables_reference=9),
+                ),
+                parent_reference=99,
+            )
+            await pilot.pause()
+            table.set_filter("missing")
+            assert table.row_count == 1
+            assert table.visible_nodes() == ()
+
+            table.set_filter("answer")
+            assert [node.name for node in table.visible_nodes()] == ["answer"]
+            assert table.cursor_row == 0
+
+            assert await table.edit_selected_value("43") is False
+            assert host.notifications[-1] == (
+                "Variable editing is not supported by this session.",
+                2.5,
+            )
+
+            table.set_filter("")
+            table.move_cursor(row=1)
+            await table.action_toggle_expand()
+            assert host.notifications[-1] == (
+                "Variable expansion is not supported by this session.",
+                2.5,
+            )
+
+            table.set_root((VariableInfo(name="root", value="42", type="int"),))
+            table.move_cursor(row=0)
+            await table.action_edit_value()
+            assert host.notifications[-1] == ("Root variables cannot be edited here.", 2.5)
+
+    asyncio.run(run())
+
+
+def test_locals_table_load_more_reports_errors_and_ignores_duplicate_fetches() -> None:
+    class SlowFailingManager(RecordingManager):
+        def __init__(self) -> None:
+            super().__init__()
+            self.started = asyncio.Event()
+            self.release = asyncio.Event()
+
+        async def get_variables_page(
+            self,
+            variables_reference: int,
+            *,
+            start: int | None = None,
+            count: int | None = None,
+            filter: str | None = None,
+        ) -> VariablePage:
+            self._record("get_variables_page", variables_reference, start, count, filter)
+            self.started.set()
+            await self.release.wait()
+            raise RuntimeError("backend unavailable")
+
+    async def run() -> None:
+        host = RecordingHost()
+        manager = SlowFailingManager()
+        ctx = make_context(host=host, manager=manager)
+        app = SingleWidgetApp(lambda: LocalsTable(ctx=ctx, page_size=2))
+
+        async with app.run_test() as pilot:
+            await pilot.pause()
+            table = cast(LocalsTable, app.widget)
+            table.set_root(
+                (VariableInfo(name="items", value="list", variables_reference=9),),
+                root_page=VariablePage(
+                    variables=(VariableInfo(name="items", value="list", variables_reference=9),),
+                    start=0,
+                    count=1,
+                    named_variables=3,
+                ),
+                parent_reference=99,
+            )
+            table.move_cursor(row=1)
+            first = asyncio.create_task(table.action_toggle_expand())
+            await manager.started.wait()
+            await table.action_toggle_expand()
+            manager.release.set()
+            await first
+            await pilot.pause()
+
+            assert manager.calls.count(("get_variables_page", (99, 1, 2, None))) == 1
+            assert host.notifications[-1] == ("backend unavailable", 2.5)
+
+    asyncio.run(run())
+
+
+def test_locals_table_edit_clears_stale_child_cache_after_reference_update() -> None:
+    async def run() -> None:
+        host = RecordingHost()
+        manager = RecordingManager(
+            variable_pages={
+                (9, 0, 2, None): VariablePage(
+                    variables=(
+                        VariableInfo(
+                            name="payload",
+                            value="{...}",
+                            type="dict",
+                            variables_reference=11,
+                        ),
+                    ),
+                    start=0,
+                    count=2,
+                    named_variables=1,
+                ),
+                (11, 0, 2, None): VariablePage(
+                    variables=(VariableInfo(name="old", value="1", type="int"),),
+                    start=0,
+                    count=2,
+                    named_variables=1,
+                ),
+            }
+        )
+        manager.silent_results = {}
+        ctx = make_context(host=host, manager=manager)
+        app = SingleWidgetApp(lambda: LocalsTable(ctx=ctx, page_size=2))
+
+        async with app.run_test() as pilot:
+            await pilot.pause()
+            table = cast(LocalsTable, app.widget)
+            table.set_root((VariableInfo(name="scope", value="{...}", variables_reference=9),))
+            table.move_cursor(row=0)
+            await table.action_toggle_expand()
+            table.move_cursor(row=1)
+            await table.action_toggle_expand()
+            await pilot.pause()
+            assert [node.name for node in table.visible_nodes()] == ["scope", "payload", "old"]
+
+            manager.fail = {}
+            updated = await table.edit_selected_value("{'new': 2}", node=table.visible_nodes()[1])
+            await pilot.pause()
+
+            assert updated is True
+            assert "Updated payload." in [message for message, _timeout in host.notifications]
+            assert [node.name for node in table.visible_nodes()] == ["scope", "payload"]
+
+    asyncio.run(run())
+
+
+def test_variable_edit_dialog_recovers_after_failed_update_and_closes_on_success() -> None:
+    async def run() -> None:
+        node = _EditableNode(name="answer", value="41")
+        failing_table = _DialogEditTable(result=False)
+        failing = VariableEditDialog(
+            table=cast(LocalsTable, failing_table),
+            node=cast(Any, node),
+        )
+
+        async with SingleScreenApp(failing).run_test() as pilot:
+            await pilot.pause()
+            await failing._on_submit(cast(Input.Submitted, _InputSubmitted("42")))
+            await pilot.pause()
+
+            assert failing_table.calls == [("42", node)]
+            assert failing._submitting is False
+            assert failing.query_one("#var_input", Input).has_focus is True
+
+        success_table = _DialogEditTable(result=True)
+        success = VariableEditDialog(
+            table=cast(LocalsTable, success_table),
+            node=cast(Any, node),
+        )
+        async with SingleScreenApp(success).run_test() as pilot:
+            await pilot.pause()
+            await success._on_submit(cast(Input.Submitted, _InputSubmitted("43")))
+            await pilot.pause()
+
+            assert success_table.calls == [("43", node)]
+            assert success._submitting is True
+
+    asyncio.run(run())
+
+
+def test_locals_panel_loads_scope_pages_and_discards_stale_results() -> None:
+    class SlowManager(RecordingManager):
+        def __init__(self) -> None:
+            super().__init__()
+            self.started = asyncio.Event()
+            self.release = asyncio.Event()
+
+        async def get_variables_page(
+            self,
+            variables_reference: int,
+            *,
+            start: int | None = None,
+            count: int | None = None,
+            filter: str | None = None,
+        ) -> VariablePage:
+            self._record("get_variables_page", variables_reference, start, count, filter)
+            self.started.set()
+            await self.release.wait()
+            return VariablePage(
+                variables=(VariableInfo(name="late", value="stale", type="str"),),
+                start=start,
+                count=count,
+                named_variables=1,
+            )
+
+    async def run() -> None:
+        manager = SlowManager()
+        ctx = make_context(manager=manager)
+        store = ctx.services.get(SESSION_STORE)
+        app = SingleWidgetApp(lambda: LocalsPanel(ctx=ctx))
+
+        async with app.run_test() as pilot:
+            await pilot.pause()
+            panel = cast(LocalsPanel, app.widget)
+            store.update(
+                state=SessionState.PAUSED,
+                scopes=(ScopeInfo(name="Locals", variables_reference=9, named_variables=1),),
+                selected_scope_name="Locals",
+                variables_generation=1,
+            )
+            await manager.started.wait()
+
+            store.update(
+                scopes=(
+                    ScopeInfo(
+                        name="Globals",
+                        variables_reference=10,
+                        page=VariablePage(variables=(), start=0, count=0),
+                    ),
+                ),
+                selected_scope_name="Globals",
+                variables_generation=2,
+            )
+            manager.release.set()
+            await pilot.pause()
+
+            assert [node.name for node in panel._table.visible_nodes()] == []
+            snap = store.snapshot()
+            assert snap.selected_scope_name == "Globals"
+            assert snap.scopes[0].variables == ()
+
+    asyncio.run(run())
+
+
+def test_locals_panel_reports_scope_page_failures_without_poisoning_store() -> None:
+    class FailingManager(RecordingManager):
+        async def get_variables_page(
+            self,
+            variables_reference: int,
+            *,
+            start: int | None = None,
+            count: int | None = None,
+            filter: str | None = None,
+        ) -> VariablePage:
+            self._record("get_variables_page", variables_reference, start, count, filter)
+            raise RuntimeError("scope page failed")
+
+    async def run() -> None:
+        host = RecordingHost()
+        ctx = make_context(host=host, manager=FailingManager())
+        store = ctx.services.get(SESSION_STORE)
+        app = SingleWidgetApp(lambda: LocalsPanel(ctx=ctx))
+
+        async with app.run_test() as pilot:
+            await pilot.pause()
+            store.update(
+                state=SessionState.PAUSED,
+                scopes=(ScopeInfo(name="Globals", variables_reference=9, named_variables=1),),
+                selected_scope_name="Globals",
+                variables_generation=1,
+            )
+            await pilot.pause()
+
+            assert host.notifications[-1] == ("scope page failed", 2.5)
+            assert store.snapshot().scopes[0].variables == ()
+
+    asyncio.run(run())
+
+
+def test_locals_panel_shows_empty_scope_when_backend_cannot_page_variables() -> None:
+    async def run() -> None:
+        ctx = make_context()
+        store = ctx.services.get(SESSION_STORE)
+        app = SingleWidgetApp(lambda: LocalsPanel(ctx=ctx))
+
+        async with app.run_test() as pilot:
+            await pilot.pause()
+            panel = cast(LocalsPanel, app.widget)
+            store.update(
+                scopes=(ScopeInfo(name="Globals", variables_reference=9, named_variables=0),),
+                selected_scope_name="Globals",
+                variables_generation=1,
+            )
+            await pilot.pause()
+
+            assert panel._table.visible_nodes() == ()
+            assert panel._table.row_count == 1
 
     asyncio.run(run())
 

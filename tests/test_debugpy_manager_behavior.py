@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import asyncio
+import json
 from pathlib import Path
 from typing import Any, cast
 
@@ -501,6 +502,81 @@ def test_completion_falls_back_to_variables_for_attribute_chain() -> None:
     asyncio.run(run())
 
 
+def test_completion_fallback_resolves_nested_variable_chains() -> None:
+    async def run() -> None:
+        store = SessionStore()
+        store.update(
+            state=SessionState.PAUSED,
+            selected_frame_id=4,
+            locals=(
+                VariableInfo(name="order", value="{...}", type="Order", variables_reference=8),
+            ),
+        )
+        manager = _manager(store)
+        dap = _TestDap(
+            {
+                "completions": [{"body": {"targets": []}}],
+                "variables": [
+                    {
+                        "body": {
+                            "variables": [
+                                {
+                                    "name": "customer",
+                                    "value": "{...}",
+                                    "type": "Customer",
+                                    "variablesReference": 9,
+                                }
+                            ]
+                        }
+                    },
+                    {
+                        "body": {
+                            "variables": [
+                                {"name": "name", "value": "'Ada'", "type": "str"},
+                                {"name": "nickname", "value": "'A'", "type": "str"},
+                                {"name": "_private", "value": "1", "type": "int"},
+                                {"name": "__class__", "value": "Customer", "type": "type"},
+                                {"name": "not valid", "value": "x"},
+                            ]
+                        }
+                    },
+                ],
+            }
+        )
+        _set_dap(manager, dap)
+
+        items = await manager.complete("order.customer.n", cursor=len("order.customer.n"))
+
+        assert [item.label for item in items] == ["name", "nickname"]
+        assert items[0].replace_start == len("order.customer.")
+        assert items[0].replace_length == 1
+        assert dap.requests[0] == (
+            "completions",
+            {"text": "order.customer.n", "column": len("order.customer.n") + 1, "frameId": 4},
+            1.5,
+        )
+
+    asyncio.run(run())
+
+
+def test_completion_fallback_ignores_missing_or_non_expandable_roots() -> None:
+    async def run() -> None:
+        store = SessionStore()
+        store.update(
+            state=SessionState.PAUSED,
+            locals=(VariableInfo(name="order", value="{...}", type="Order"),),
+        )
+        manager = _manager(store)
+        dap = _TestDap({"completions": [{"body": {"targets": []}}, {"body": {"targets": []}}]})
+        _set_dap(manager, dap)
+
+        assert await manager.complete("missing.name", cursor=len("missing.name")) == ()
+        assert await manager.complete("order.name", cursor=len("order.name")) == ()
+        assert [request[0] for request in dap.requests] == ["completions", "completions"]
+
+    asyncio.run(run())
+
+
 def test_refresh_tasks_reports_unavailable_without_pause_or_dap() -> None:
     async def run() -> None:
         store = SessionStore()
@@ -518,6 +594,121 @@ def test_refresh_tasks_reports_unavailable_without_pause_or_dap() -> None:
             status=TaskCaptureStatus.UNAVAILABLE,
             message="No active DAP connection.",
         )
+
+    asyncio.run(run())
+
+
+def test_refresh_tasks_records_dap_errors_for_current_stop() -> None:
+    class ErrorDap(_TestDap):
+        async def request(
+            self, command: str, arguments: dict[str, object], timeout_s: float | None = None
+        ) -> dict[str, object]:
+            self.requests.append((command, arguments, timeout_s))
+            raise DapRequestError(
+                command=command,
+                message="collector failed",
+                response={"success": False},
+            )
+
+    async def run() -> None:
+        store = SessionStore()
+        store.update(
+            state=SessionState.PAUSED,
+            selected_thread_id=7,
+            selected_frame_id=11,
+        )
+        manager = _manager(store)
+        dap = ErrorDap()
+        _set_dap(manager, dap)
+
+        await manager.refresh_tasks()
+
+        graph = store.snapshot().task_graph
+        assert graph is not None
+        assert graph.status is TaskCaptureStatus.ERROR
+        assert "collector failed" in (graph.message or "")
+        assert dap.requests[0] == (
+            "evaluate",
+            {
+                "expression": dap.requests[0][1]["expression"],
+                "context": "repl",
+                "frameId": 11,
+            },
+            5.0,
+        )
+
+    asyncio.run(run())
+
+
+def test_refresh_tasks_discards_stale_capture_after_resume() -> None:
+    class BlockingTaskDap(_TestDap):
+        def __init__(self) -> None:
+            super().__init__()
+            self.collector_started = asyncio.Event()
+            self.release_collector = asyncio.Event()
+
+        async def request(
+            self, command: str, arguments: dict[str, object], timeout_s: float | None = None
+        ) -> dict[str, object]:
+            self.requests.append((command, arguments, timeout_s))
+            expression = arguments.get("expression")
+            if expression == "__yathaavat_collect_async_tasks__()":
+                self.collector_started.set()
+                await self.release_collector.wait()
+                return {
+                    "body": {
+                        "result": json.dumps(
+                            {"status": "empty", "tasks": [], "message": "late result"}
+                        )
+                    }
+                }
+            return {"body": {}}
+
+    async def run() -> None:
+        previous = TaskGraphInfo(
+            status=TaskCaptureStatus.UNAVAILABLE,
+            message="previous graph",
+        )
+        store = SessionStore()
+        store.update(
+            state=SessionState.PAUSED,
+            selected_thread_id=7,
+            selected_frame_id=11,
+            task_graph=previous,
+        )
+        manager = _manager(store)
+        dap = BlockingTaskDap()
+        _set_dap(manager, dap)
+
+        task = asyncio.create_task(manager.refresh_tasks())
+        await asyncio.wait_for(dap.collector_started.wait(), timeout=1)
+        store.update(state=SessionState.RUNNING)
+        dap.release_collector.set()
+        await asyncio.wait_for(task, timeout=1)
+
+        assert store.snapshot().task_graph == previous
+
+    asyncio.run(run())
+
+
+def test_safe_refresh_tasks_records_unexpected_errors(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    async def run() -> None:
+        store = SessionStore()
+        manager = _manager(store)
+
+        async def fail_refresh_tasks() -> None:
+            raise RuntimeError("collector wrapper failed")
+
+        monkeypatch.setattr(manager, "refresh_tasks", fail_refresh_tasks)
+
+        await manager._safe_refresh_tasks()
+
+        graph = store.snapshot().task_graph
+        assert graph is not None
+        assert graph.status is TaskCaptureStatus.ERROR
+        assert graph.message == "collector wrapper failed"
 
     asyncio.run(run())
 

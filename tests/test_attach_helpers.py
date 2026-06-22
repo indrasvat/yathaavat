@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import asyncio
 import subprocess
 import sys
 
@@ -68,6 +69,120 @@ def test_attach_lsof_parsers_ignore_bad_process_output(monkeypatch: pytest.Monke
     assert attach._list_listening_tcp_endpoints(123) == [("127.0.0.1", 5678), ("::1", 9000)]
     assert attach._list_established_remote_ports(123) == [6000]
     assert attach._listener_pids_for_port(6000) == [101, 202]
+
+
+def test_attach_process_probes_degrade_on_lsof_and_ps_failures(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    def raise_os_error(_cmd: list[str], **_kwargs: object) -> subprocess.CompletedProcess[str]:
+        raise OSError("missing tool")
+
+    monkeypatch.setattr(subprocess, "run", raise_os_error)
+    assert attach._list_listening_tcp_endpoints(123) == []
+    assert attach._list_established_remote_ports(123) == []
+    assert attach._listener_pids_for_port(6000) == []
+    assert attach._ps_args(101) is None
+
+    def nonzero(cmd: list[str], **_kwargs: object) -> subprocess.CompletedProcess[str]:
+        return subprocess.CompletedProcess(cmd, 1, stdout="ignored", stderr="denied")
+
+    monkeypatch.setattr(subprocess, "run", nonzero)
+    assert attach._list_listening_tcp_endpoints(123) == []
+    assert attach._list_established_remote_ports(123) == []
+    assert attach._listener_pids_for_port(6000) == []
+    assert attach._ps_args(101) is None
+
+    def ps_success(cmd: list[str], **_kwargs: object) -> subprocess.CompletedProcess[str]:
+        return subprocess.CompletedProcess(cmd, 0, stdout="  python -m debugpy.adapter  \n")
+
+    monkeypatch.setattr(subprocess, "run", ps_success)
+    assert attach._ps_args(101) == "python -m debugpy.adapter"
+
+
+def test_infer_debugpy_endpoint_uses_adapter_connected_to_debuggee(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    monkeypatch.setattr(attach, "_list_established_remote_ports", lambda pid: [6000])
+    monkeypatch.setattr(attach, "_listener_pids_for_port", lambda port: [100, 101, 202])
+
+    def ps_args(pid: int) -> str | None:
+        if pid == 100:
+            return None
+        if pid == 101:
+            return ""
+        return "python -m debugpy.adapter --host 127.0.0.1 --port 51578 --for-server 6000"
+
+    monkeypatch.setattr(attach, "_ps_args", ps_args)
+    monkeypatch.setattr(attach, "_list_listening_tcp_endpoints", lambda pid: [])
+
+    assert asyncio.run(attach._infer_debugpy_dap_endpoint(123)) == ("127.0.0.1", 51578)
+
+
+def test_infer_debugpy_endpoint_probes_listeners_with_loopback_fallback(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    probes: list[tuple[str, int]] = []
+    monkeypatch.setattr(attach, "_list_established_remote_ports", lambda pid: [])
+    monkeypatch.setattr(attach, "_list_listening_tcp_endpoints", lambda pid: [("127.0.0.1", 5678)])
+
+    async def probe(host: str, port: int) -> bool:
+        probes.append((host, port))
+        return host == "::1"
+
+    monkeypatch.setattr(attach, "_probe_dap_endpoint", probe)
+
+    assert asyncio.run(attach._infer_debugpy_dap_endpoint(123)) == ("::1", 5678)
+    assert probes == [("127.0.0.1", 5678), ("::1", 5678)]
+
+
+def test_infer_debugpy_endpoint_accepts_direct_dap_listener(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    probes: list[tuple[str, int]] = []
+    monkeypatch.setattr(attach, "_list_established_remote_ports", lambda pid: [])
+    monkeypatch.setattr(attach, "_list_listening_tcp_endpoints", lambda pid: [("127.0.0.1", 5678)])
+
+    async def probe(host: str, port: int) -> bool:
+        probes.append((host, port))
+        return True
+
+    monkeypatch.setattr(attach, "_probe_dap_endpoint", probe)
+
+    assert asyncio.run(attach._infer_debugpy_dap_endpoint(123)) == ("127.0.0.1", 5678)
+    assert probes == [("127.0.0.1", 5678)]
+
+
+def test_infer_debugpy_endpoint_falls_back_from_ipv6_to_ipv4_loopback(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    probes: list[tuple[str, int]] = []
+    monkeypatch.setattr(attach, "_list_established_remote_ports", lambda pid: [])
+    monkeypatch.setattr(attach, "_list_listening_tcp_endpoints", lambda pid: [("::1", 5678)])
+
+    async def probe(host: str, port: int) -> bool:
+        probes.append((host, port))
+        return host == "127.0.0.1"
+
+    monkeypatch.setattr(attach, "_probe_dap_endpoint", probe)
+
+    assert asyncio.run(attach._infer_debugpy_dap_endpoint(123)) == ("127.0.0.1", 5678)
+    assert probes == [("::1", 5678), ("127.0.0.1", 5678)]
+
+
+def test_infer_debugpy_endpoint_returns_none_when_candidates_do_not_speak_dap(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    monkeypatch.setattr(attach, "_list_established_remote_ports", lambda pid: [6000])
+    monkeypatch.setattr(attach, "_listener_pids_for_port", lambda port: [101])
+    monkeypatch.setattr(attach, "_ps_args", lambda pid: "python worker.py")
+    monkeypatch.setattr(attach, "_list_listening_tcp_endpoints", lambda pid: [("::1", 5678)])
+
+    async def probe(_host: str, _port: int) -> bool:
+        return False
+
+    monkeypatch.setattr(attach, "_probe_dap_endpoint", probe)
+
+    assert asyncio.run(attach._infer_debugpy_dap_endpoint(123)) is None
 
 
 def test_attach_picker_rows_mark_debugpy_and_safe_attach_candidates(
