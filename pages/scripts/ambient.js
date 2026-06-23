@@ -332,7 +332,9 @@
     }
 
     resize();
-    var ro = new ResizeObserver(resize); ro.observe(parent);
+    var ro = null, onResize = null;
+    if (global.ResizeObserver) { ro = new ResizeObserver(resize); ro.observe(parent); }
+    else { onResize = function () { resize(); }; global.addEventListener("resize", onResize, { passive: true }); }
 
     var io = null;
     if (!staticOnly && global.IntersectionObserver) {
@@ -359,7 +361,8 @@
     return {
       stop: function () {
         global.cancelAnimationFrame(raf);
-        ro.disconnect(); if (io) io.disconnect();
+        if (ro) ro.disconnect(); if (io) io.disconnect();
+        if (onResize) global.removeEventListener("resize", onResize);
         if (onMove) global.removeEventListener("pointermove", onMove);
       },
     };

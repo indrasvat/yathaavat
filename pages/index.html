@@ -298,14 +298,21 @@
       b.addEventListener('click', function () {
         var el = document.querySelector(b.getAttribute('data-copy'));
         var text = el ? el.textContent.replace(/^\$/, '').trim() : '';
-        navigator.clipboard && navigator.clipboard.writeText(text);
-        var old = b.textContent; b.textContent = 'Copied'; setTimeout(function () { b.textContent = old; }, 1500);
+        if (!navigator.clipboard) return;
+        var old = b.textContent;
+        navigator.clipboard.writeText(text).then(function () {
+          b.textContent = 'Copied'; setTimeout(function () { b.textContent = old; }, 1500);
+        }).catch(function () {});
       });
     });
     var nav = document.getElementById('nav');
-    new IntersectionObserver(function (es) { nav.classList.toggle('scrolled', !es[0].isIntersecting); }, { rootMargin: '-69px 0px 0px 0px' }).observe(document.getElementById('top'));
+    var hasIO = 'IntersectionObserver' in window;
+    if (hasIO) {
+      new IntersectionObserver(function (es) { nav.classList.toggle('scrolled', !es[0].isIntersecting); }, { rootMargin: '-69px 0px 0px 0px' }).observe(document.getElementById('top'));
+    }
     var reduce = window.matchMedia && matchMedia('(prefers-reduced-motion: reduce)').matches;
-    if (reduce) { [].forEach.call(document.querySelectorAll('.reveal'), function (e) { e.classList.add('in'); }); }
+    // Without IntersectionObserver, reveal-on-scroll can't fire — show everything.
+    if (reduce || !hasIO) { [].forEach.call(document.querySelectorAll('.reveal'), function (e) { e.classList.add('in'); }); }
     else {
       var io = new IntersectionObserver(function (es) { es.forEach(function (e) { if (e.isIntersecting) { e.target.classList.add('in'); io.unobserve(e.target); } }); }, { threshold: 0.1 });
       [].forEach.call(document.querySelectorAll('.reveal'), function (e) { io.observe(e); });

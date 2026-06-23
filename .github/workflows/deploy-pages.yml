@@ -43,7 +43,7 @@ jobs:
     env:
       REPO: ${{ github.repository }}
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@34e114876b0b11c390a56381ad16ebd13914f8d5 # v4
 
       - name: Stage pages content
         run: |
@@ -57,7 +57,7 @@ jobs:
           set -euo pipefail
           latest="$(gh release list --repo "$REPO" --limit 1 \
                      --json tagName --jq '.[0].tagName // ""')"
-          if [[ -n "$latest" ]]; then
+          if [ -n "$latest" ]; then
             published_at="$(gh release view "$latest" --repo "$REPO" \
                             --json publishedAt --jq '.publishedAt')"
             {
@@ -78,7 +78,7 @@ jobs:
           chmod +x deploy/install.sh
 
       - name: Deploy to Cloudflare Pages
-        uses: cloudflare/wrangler-action@v3
+        uses: cloudflare/wrangler-action@9acf94ace14e7dc412b076f2c5c20b8ce93c79cd # v3
         with:
           apiToken: ${{ secrets.CLOUDFLARE_API_TOKEN }}
           accountId: ${{ secrets.CLOUDFLARE_ACCOUNT_ID }}

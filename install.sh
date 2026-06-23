@@ -215,6 +215,9 @@ verify() {
 # --- Uninstall / dry-run ------------------------------------------------------
 do_uninstall() {
     head "Removing ${BINARY}"
+    if ! command -v uv >/dev/null 2>&1; then
+        error_exit "uv is required to uninstall ${BINARY}, but it was not found on PATH."
+    fi
     if uv tool uninstall "${BINARY}" >/dev/null 2>&1; then
         success "Uninstalled ${BINARY}"
     else
