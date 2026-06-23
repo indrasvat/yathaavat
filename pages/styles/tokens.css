@@ -1,0 +1,117 @@
+/* ============================================================================
+   PHOSPHOR · tokens.css
+   Portable design tokens distilled from the Libretto landing page.
+
+   HOW TO RETHEME (the whole point — do NOT clone Libretto's green):
+   1. Pick ONE accent hue for the tool. Set --accent / --accent-bright /
+      --accent-dim (three steps of the same hue).
+   2. Optionally tint the neutral ramp toward the accent hue (Libretto's grays
+      lean green). Keep chroma TINY (~0.005–0.02) or it reads muddy.
+   3. Keep --amber as the warm secondary used ONLY for kickers + the ASCII
+      wordmark glow. Swap it too if your accent is already warm.
+   See references/design-tokens.md for ready-made presets (amber, cyan,
+   magenta, mono-amber).
+   ============================================================================ */
+
+:root {
+  /* ── Type families ── */
+  --font-serif: "Fraunces", "Newsreader", Georgia, "Times New Roman", serif;
+  --font-mono: "Commit Mono", ui-monospace, "SF Mono", SFMono-Regular, Menlo,
+    Monaco, Consolas, "Liberation Mono", monospace;
+  --font-sans: var(--font-mono); /* the body voice IS monospace here */
+
+  /* ── Neutral ramp (subtly accent-tinted; 1 = darkest → 12 = lightest) ── */
+  --gray-1: #0f120f;
+  --gray-2: #171917;
+  --gray-3: #202320;
+  --gray-4: #262a26;
+  --gray-5: #2d322d;
+  --gray-6: #363b36;
+  --gray-7: #424a42;
+  --gray-8: #596359;
+  --gray-9: #637263;
+  --gray-10: #717f71;
+  --gray-11: #abb7ab;
+  --gray-12: #ebeeeb;
+
+  /* ── Accent ramp (the ONE knob to retheme). Default: phosphor green. ──
+     9 = the loud "signal" accent, 11 = brighter (hover/glow), 8 = dim. */
+  --accent-1: #0c130c;
+  --accent-2: #121b12;
+  --accent-3: #142d16;
+  --accent-4: #123c17;
+  --accent-5: #184a1e;
+  --accent-6: #205926;
+  --accent-7: #286a2f;
+  --accent-8: #2e7e37;
+  --accent-9: #12ce41;
+  --accent-10: #38be4c;
+  --accent-11: #2fdb4f;
+  --accent-12: #aff4b2;
+
+  /* ── Semantic tokens — reference these in components, not raw ramps ── */
+  --bg: #111;
+  --ink: var(--gray-12); /* primary text */
+  --muted: var(--gray-11); /* body / secondary text */
+  --faint: var(--gray-8); /* labels, dividers' text, de-emphasis */
+  --panel: var(--gray-2); /* card / surface background */
+  --panel-hi: var(--gray-3); /* raised surface */
+  --rule: var(--gray-4); /* hairline borders */
+
+  --accent: var(--accent-9);
+  --accent-bright: var(--accent-11);
+  --accent-dim: var(--accent-8);
+
+  /* Warm secondary — kickers + ASCII wordmark glow ONLY. Sparingly. */
+  --amber: oklch(0.75 0.15 80);
+  --amber-bright: oklch(0.9 0.18 80);
+
+  /* ── Type scale (fluid where it matters) ── */
+  --text-xs: 0.75rem;
+  --text-sm: 0.875rem;
+  --text-base: 1rem;
+  --text-lg: 1.125rem;
+  --text-display-hero: clamp(40px, 6vw, 80px); /* hero <h1> */
+  --text-display-section: clamp(32px, 4vw, 48px); /* section <h2> */
+  --text-display-section-sm: clamp(28px, 3.5vw, 42px);
+
+  /* ── Rhythm ── */
+  --container: 1100px; /* default reading width */
+  --container-wide: 1200px; /* hero */
+  --container-narrow: 800px; /* navbar / footer / dense text */
+  --gutter: 2rem; /* px-8 */
+  --section-y: 6rem; /* py-24 — generous vertical breathing room */
+  --radius: 8px;
+}
+
+/* Wide-gamut: punch up the accent on P3 displays (optional but lovely). */
+@supports (color: color(display-p3 1 1 1)) {
+  @media (color-gamut: p3) {
+    :root {
+      --accent-9: oklch(74.2% 0.2266 145.4);
+      --accent-11: oklch(78% 0.2266 145.4);
+    }
+  }
+}
+
+html {
+  scroll-behavior: smooth;
+  font-size: 15px; /* base — everything scales from here */
+}
+
+body {
+  margin: 0;
+  background: var(--bg);
+  color: var(--ink);
+  font-family: var(--font-mono);
+  font-feature-settings: "ss01" 1;
+  -webkit-font-smoothing: antialiased;
+}
+
+/* Serif display helper */
+.serif {
+  font-family: var(--font-serif);
+  font-weight: 300; /* light serif is the signature — NOT bold */
+  letter-spacing: -0.02em;
+  text-wrap: balance;
+}
