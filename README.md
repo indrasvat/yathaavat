@@ -28,16 +28,16 @@
 
 ## Install
 
-Requires `uv` and Python 3.14.
+Requires `uv` (Python 3.14 is provisioned automatically).
 
 ```bash
-curl -fsSL https://raw.githubusercontent.com/indrasvat/yathaavat/main/install.sh | bash
+curl -fsSL https://yathaavat.pages.dev/install | sh
 ```
 
 Or install directly:
 
 ```bash
-uv tool install --python python3.14 git+https://github.com/indrasvat/yathaavat
+uv tool install --python 3.14 git+https://github.com/indrasvat/yathaavat
 ```
 
 ## Quickstart
