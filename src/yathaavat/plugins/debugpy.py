@@ -238,6 +238,17 @@ def _cfg_weight(cfg: _BreakpointConfig) -> int:
     return weight
 
 
+def _breakpoint_config_label(cfg: _BreakpointConfig) -> str:
+    parts: list[str] = []
+    if cfg.condition:
+        parts.append(f"if {cfg.condition}")
+    if cfg.hit_condition:
+        parts.append(f"hit {cfg.hit_condition}")
+    if cfg.log_message:
+        parts.append(f"log {cfg.log_message}")
+    return " • ".join(parts)
+
+
 @dataclass(slots=True)
 class DebugpySessionManager(SessionManager):
     store: SessionStore
@@ -252,9 +263,11 @@ class DebugpySessionManager(SessionManager):
     _capture_launch_output: bool = False
     _auto_resume_pending: bool = False
     _variable_counts: dict[int, tuple[int | None, int | None]] = field(default_factory=dict)
+    _user_roots: tuple[Path, ...] = field(default_factory=lambda: (Path.cwd().resolve(),))
 
     async def connect(self, host: str, port: int) -> None:
         await self.disconnect()
+        self._user_roots = (Path.cwd().resolve(),)
         self.store.update(
             backend="debugpy", python=f"{sys.version_info.major}.{sys.version_info.minor}"
         )
@@ -391,18 +404,30 @@ class DebugpySessionManager(SessionManager):
         finally:
             shutil.rmtree(remote_dir, ignore_errors=True)
 
-    async def launch(self, target_argv: list[str]) -> None:
+    async def launch(
+        self,
+        target_argv: list[str],
+        *,
+        debugpy_prefix: list[str] | None = None,
+        cwd: str | None = None,
+    ) -> None:
         if not target_argv:
             raise ValueError("Launch requires a target (e.g. script.py or -m module)")
 
         await self.disconnect()
         await self._terminate_launched()
+        self._user_roots = _launch_user_roots(target_argv, cwd=cwd)
 
         port = _pick_free_port()
         self.store.append_transcript(f"Launching under debugpy on 127.0.0.1:{port}…")
+        prefix = debugpy_prefix or [sys.executable]
+        env = None
+        if Path(prefix[0]).name == "uv":
+            env = os.environ.copy()
+            env.pop("VIRTUAL_ENV", None)
         self._capture_launch_output = True
         self._launched = await asyncio.create_subprocess_exec(
-            sys.executable,
+            *prefix,
             "-Xfrozen_modules=off",
             "-m",
             "debugpy",
@@ -410,6 +435,8 @@ class DebugpySessionManager(SessionManager):
             f"127.0.0.1:{port}",
             "--wait-for-client",
             *target_argv,
+            cwd=cwd,
+            env=env,
             stdout=asyncio.subprocess.PIPE,
             stderr=asyncio.subprocess.STDOUT,
         )
@@ -926,6 +953,7 @@ class DebugpySessionManager(SessionManager):
             hit_condition=hit_condition or None,
             log_message=log_message or None,
         )
+        cfg = configs[line]
 
         # Keep the map tidy.
         if not configs:
@@ -934,20 +962,18 @@ class DebugpySessionManager(SessionManager):
         if self._dap is None:
             self._set_breakpoints_offline(path, sorted(configs))
             file = Path(path).name
-            parts = []
-            if condition:
-                parts.append("if")
-            if hit_condition:
-                parts.append("hit")
-            if log_message:
-                parts.append("log")
-            suffix = f" ({', '.join(parts)})" if parts else ""
+            label = _breakpoint_config_label(cfg)
+            suffix = f" ({label})" if label else ""
             self.store.append_transcript(f"Breakpoint queued: {file}:{line}{suffix}")
             return
 
         # Apply to adapter.
         self._set_breakpoints_pending(path, sorted(configs))
         await self._set_breakpoints(path, sorted(configs))
+        file = Path(path).name
+        label = _breakpoint_config_label(cfg)
+        suffix = f" ({label})" if label else ""
+        self.store.append_transcript(f"Breakpoint configured: {file}:{line}{suffix}")
 
     def _set_breakpoints_offline(self, path: str, lines: list[int]) -> None:
         # When disconnected, we still track and display breakpoints so they can be queued
@@ -1131,7 +1157,8 @@ class DebugpySessionManager(SessionManager):
                     self._auto_resume_pending = False
                     snap = self.store.snapshot()
                     has_user_frame = any(
-                        isinstance(f.path, str) and _is_user_path(f.path) for f in snap.frames
+                        isinstance(f.path, str) and _is_user_path(f.path, self._user_roots)
+                        for f in snap.frames
                     )
                     if not has_user_frame:
                         self.store.append_transcript("Auto-resuming (launch)…")
@@ -1227,7 +1254,11 @@ class DebugpySessionManager(SessionManager):
             )
         frames = [f for f in frames if f.id >= 0]
         selected = next(
-            (f for f in frames if isinstance(f.path, str) and _is_user_path(f.path)),
+            (
+                f
+                for f in frames
+                if isinstance(f.path, str) and _is_user_path(f.path, self._user_roots)
+            ),
             frames[0] if frames else None,
         )
         selected_frame = selected.id if selected is not None else None
@@ -1698,12 +1729,48 @@ def _is_pyruntime_lookup_failure(exc: BaseException) -> bool:
     return False
 
 
-def _is_user_path(path: str) -> bool:
+def _launch_user_roots(target_argv: list[str], *, cwd: str | None) -> tuple[Path, ...]:
+    roots: list[Path] = []
+    if cwd:
+        roots.append(Path(cwd).expanduser())
+
+    if target_argv:
+        first = target_argv[0]
+        if first != "-m" and not first.startswith("-"):
+            p = Path(first).expanduser()
+            if not p.is_absolute():
+                p = Path(cwd or Path.cwd()) / p
+            if not _is_dependency_path(p):
+                roots.append(p.parent)
+
+    roots.append(Path.cwd())
+
+    resolved: list[Path] = []
+    for root in roots:
+        try:
+            value = root.resolve()
+        except OSError:
+            continue
+        if value not in resolved:
+            resolved.append(value)
+    return tuple(resolved)
+
+
+def _is_user_path(path: str, roots: tuple[Path, ...] | None = None) -> bool:
     if path.startswith("<") and path.endswith(">"):
         return False
     try:
         p = Path(path).expanduser().resolve()
     except OSError:
         return False
-    cwd = Path.cwd().resolve()
-    return p.is_relative_to(cwd)
+    if _is_dependency_path(p):
+        return False
+    search_roots = roots or (Path.cwd().resolve(),)
+    return any(p.is_relative_to(root) for root in search_roots)
+
+
+def _is_dependency_path(path: Path) -> bool:
+    parts = path.parts
+    if "site-packages" in parts or "dist-packages" in parts:
+        return True
+    return any(part in {".venv", "venv", "env"} for part in parts)

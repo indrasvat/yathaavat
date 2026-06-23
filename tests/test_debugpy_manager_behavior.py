@@ -34,6 +34,7 @@ from yathaavat.plugins.debugpy import (
     _initialize_arguments,
     _is_pyruntime_lookup_failure,
     _is_user_path,
+    _launch_user_roots,
     _parse_scopes,
     _parse_variables,
 )
@@ -132,6 +133,13 @@ def test_is_user_path_rejects_synthetic_and_external_paths(tmp_path: Path) -> No
     assert _is_user_path("<string>") is False
     assert _is_user_path(str(tmp_path / "outside.py")) is False
     assert _is_user_path(str(Path.cwd() / "src" / "yathaavat" / "cli.py")) is True
+    roots = _launch_user_roots(["/tmp/gauntlet/target/.venv/bin/tool"], cwd="/tmp/gauntlet/target")
+    assert _is_user_path("/tmp/gauntlet/target/src/app.py", roots) is True
+    assert _is_user_path("/tmp/gauntlet/target/.venv/bin/tool", roots) is False
+    assert _is_user_path("/tmp/gauntlet/target/.venv/site-packages/click/core.py", roots) is False
+    assert _is_user_path("/tmp/gauntlet/other/app.py", roots) is False
+    direct_roots = _launch_user_roots([str(tmp_path / "bin" / "tool")], cwd=None)
+    assert _is_user_path(str(tmp_path / "bin" / "app.py"), direct_roots) is True
 
 
 def test_resume_and_stepping_commands_use_selected_thread() -> None:
@@ -290,6 +298,59 @@ def test_refresh_threads_frames_and_locals_choose_user_frame() -> None:
         )
         assert snap.locals == (VariableInfo(name="answer", value="42", type="int"),)
         assert snap.locals_reference == 99
+
+    asyncio.run(run())
+
+
+def test_refresh_frames_prefers_launched_external_target_root(tmp_path: Path) -> None:
+    async def run() -> None:
+        target_root = tmp_path / "target"
+        user_source = target_root / "src" / "app.py"
+        user_source.parent.mkdir(parents=True)
+        user_source.write_text("print('boom')\n", encoding="utf-8")
+        click_source = target_root / ".venv" / "site-packages" / "click" / "core.py"
+        click_source.parent.mkdir(parents=True)
+        click_source.write_text("raise SystemExit(2)\n", encoding="utf-8")
+
+        store = SessionStore()
+        store.update(state=SessionState.PAUSED)
+        manager = _manager(store)
+        manager._user_roots = _launch_user_roots(
+            [str(target_root / ".venv" / "bin" / "async-ledger")],
+            cwd=str(target_root),
+        )
+        dap = _TestDap(
+            {
+                "stackTrace": [
+                    {
+                        "body": {
+                            "stackFrames": [
+                                {
+                                    "id": 10,
+                                    "name": "main",
+                                    "line": 1473,
+                                    "source": {"path": str(click_source)},
+                                },
+                                {
+                                    "id": 11,
+                                    "name": "repro",
+                                    "line": 61,
+                                    "source": {"path": str(user_source)},
+                                },
+                            ]
+                        }
+                    }
+                ],
+                "scopes": [{"body": {"scopes": []}}],
+            }
+        )
+        _set_dap(manager, dap)
+
+        await manager._refresh_frames(1)
+
+        snap = store.snapshot()
+        assert snap.selected_frame_id == 11
+        assert snap.source_path == str(user_source)
 
     asyncio.run(run())
 
@@ -764,6 +825,9 @@ def test_offline_breakpoint_config_and_toggle_keep_store_sorted(tmp_path: Path) 
             condition="x > 1",
             hit_condition="3",
             log_message="x={x}",
+        )
+        assert store.snapshot().transcript[-1] == (
+            "Breakpoint queued: b.py:2 (if x > 1 • hit 3 • log x={x})"
         )
         await manager.toggle_breakpoint(str(second), 1)
         await manager.toggle_breakpoint(str(first), 2)

@@ -300,7 +300,13 @@ class SessionManager(Protocol):
 
     async def attach(self, pid: int) -> None: ...
 
-    async def launch(self, target_argv: list[str]) -> None: ...
+    async def launch(
+        self,
+        target_argv: list[str],
+        *,
+        debugpy_prefix: list[str] | None = None,
+        cwd: str | None = None,
+    ) -> None: ...
 
     async def disconnect(self) -> None: ...
 

@@ -95,8 +95,14 @@ class RecordingManager:
     async def safe_attach(self, pid: int) -> None:
         self._record("safe_attach", pid)
 
-    async def launch(self, target_argv: list[str]) -> None:
-        self._record("launch", tuple(target_argv))
+    async def launch(
+        self,
+        target_argv: list[str],
+        *,
+        debugpy_prefix: list[str] | None = None,
+        cwd: str | None = None,
+    ) -> None:
+        self._record("launch", tuple(target_argv), tuple(debugpy_prefix or ()), cwd)
 
     async def disconnect(self) -> None:
         self._record("disconnect")

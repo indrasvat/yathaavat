@@ -241,6 +241,46 @@ def test_launch_starts_debugpy_subprocess_and_connects(monkeypatch: pytest.Monke
     asyncio.run(run())
 
 
+def test_launch_uses_custom_debugpy_prefix_and_cwd(monkeypatch: pytest.MonkeyPatch) -> None:
+    async def run() -> None:
+        store = SessionStore()
+        manager = _LifecycleManager(store)
+        proc = _FakeProcess(stdout=_FakeStdout([]), returncode=0)
+        monkeypatch.setenv("VIRTUAL_ENV", "/repo/.venv")
+        monkeypatch.setattr(debugpy, "_pick_free_port", lambda: 7112)
+        create_calls: list[tuple[tuple[object, ...], dict[str, object]]] = []
+
+        async def fake_create_subprocess_exec(*argv: object, **kwargs: object) -> _FakeProcess:
+            create_calls.append((argv, kwargs))
+            return proc
+
+        monkeypatch.setattr(asyncio, "create_subprocess_exec", fake_create_subprocess_exec)
+
+        await manager.launch(
+            ["/svc/.venv/bin/traffic-ledger", "--port", "8077"],
+            debugpy_prefix=["uv", "--directory", "/svc", "run", "--with", "debugpy", "python"],
+            cwd="/svc",
+        )
+
+        argv, kwargs = create_calls[0]
+        assert argv[:6] == (
+            "uv",
+            "--directory",
+            "/svc",
+            "run",
+            "--with",
+            "debugpy",
+        )
+        assert "-m" in argv
+        assert "/svc/.venv/bin/traffic-ledger" in argv
+        assert kwargs["cwd"] == "/svc"
+        env = kwargs["env"]
+        assert isinstance(env, dict)
+        assert "VIRTUAL_ENV" not in env
+
+    asyncio.run(run())
+
+
 def test_launch_rejects_empty_target() -> None:
     async def run() -> None:
         manager = _LifecycleManager(SessionStore())

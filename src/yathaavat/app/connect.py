@@ -167,6 +167,8 @@ class ConnectPicker(ModalScreen[None]):
             li.connect_host = row.host  # type: ignore[attr-defined]
             li.connect_port = row.port  # type: ignore[attr-defined]
             lv.append(li)
+        if rows and lv.index is None:
+            lv.index = 0
 
     @dataclass(frozen=True, slots=True)
     class _Row:

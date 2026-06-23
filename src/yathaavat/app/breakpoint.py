@@ -39,16 +39,15 @@ def parse_breakpoint_spec(
     if not s:
         return None
 
-    try:
-        tokens = shlex.split(s, posix=True)
-    except ValueError:
-        tokens = s.split()
-
-    if not tokens:
+    split = _split_location_and_options(s)
+    if split is None:
         return None
 
-    loc = tokens[0]
-    opts = tokens[1:]
+    loc, opts_raw = split
+    try:
+        opts = shlex.split(opts_raw, posix=False) if opts_raw else []
+    except ValueError:
+        opts = opts_raw.split()
 
     line_num: int | None = None
     if loc.isdigit():
@@ -100,20 +99,20 @@ def _apply_bp_opts(spec: BreakpointSpec, tokens: list[str]) -> BreakpointSpec | 
         tok = tokens[i]
         match tok:
             case "if" | "cond" | "condition":
-                i += 1
-                if i >= len(tokens):
+                value, i = _consume_option_value(tokens, i + 1)
+                if value is None:
                     return None
-                condition = tokens[i]
+                condition = _clean_option_value(value)
             case "hit" | "hits" | "count":
-                i += 1
-                if i >= len(tokens):
+                value, i = _consume_option_value(tokens, i + 1)
+                if value is None:
                     return None
-                hit_condition = tokens[i]
+                hit_condition = _clean_option_value(value)
             case "log" | "print":
-                i += 1
-                if i >= len(tokens):
+                value, i = _consume_option_value(tokens, i + 1)
+                if value is None:
                     return None
-                log_message = tokens[i]
+                log_message = _clean_option_value(value)
             case _:
                 if tok.startswith("if="):
                     condition = tok.removeprefix("if=") or None
@@ -123,7 +122,9 @@ def _apply_bp_opts(spec: BreakpointSpec, tokens: list[str]) -> BreakpointSpec | 
                     log_message = tok.removeprefix("log=") or None
                 else:
                     return None
-        i += 1
+                i += 1
+                continue
+        continue
 
     return BreakpointSpec(
         path=spec.path,
@@ -132,6 +133,70 @@ def _apply_bp_opts(spec: BreakpointSpec, tokens: list[str]) -> BreakpointSpec | 
         hit_condition=hit_condition or None,
         log_message=log_message or None,
     )
+
+
+def _split_location_and_options(value: str) -> tuple[str, str] | None:
+    quote: str | None = None
+    escape = False
+    for i, ch in enumerate(value):
+        if escape:
+            escape = False
+            continue
+        if ch == "\\":
+            escape = True
+            continue
+        if quote is not None:
+            if ch == quote:
+                quote = None
+            continue
+        if ch in {"'", '"'}:
+            quote = ch
+            continue
+        if ch.isspace():
+            loc = _strip_matching_quotes(value[:i].strip())
+            rest = value[i + 1 :].strip()
+            return (loc, rest) if loc else None
+
+    loc = _strip_matching_quotes(value.strip())
+    return (loc, "") if loc else None
+
+
+def _consume_option_value(tokens: list[str], start: int) -> tuple[str | None, int]:
+    if start >= len(tokens):
+        return None, start
+    end = start
+    while end < len(tokens):
+        if end > start and tokens[end] in {
+            "if",
+            "cond",
+            "condition",
+            "hit",
+            "hits",
+            "count",
+            "log",
+            "print",
+        }:
+            break
+        if end > start and (
+            tokens[end].startswith("if=")
+            or tokens[end].startswith("hit=")
+            or tokens[end].startswith("log=")
+        ):
+            break
+        end += 1
+    if end == start:
+        return None, start
+    return " ".join(tokens[start:end]), end
+
+
+def _clean_option_value(value: str) -> str:
+    return _strip_matching_quotes(value.strip())
+
+
+def _strip_matching_quotes(value: str) -> str:
+    if len(value) >= 2 and value[0] == value[-1] and value[0] in {"'", '"'}:
+        return value[1:-1]
+    return value
 
 
 def _bp_display_hint(bp: BreakpointInfo) -> str:
@@ -157,10 +222,10 @@ class BreakpointDialog(ModalScreen[None]):
         yield Container(
             Static("Add breakpoint", id="bp_title"),
             Input(
-                placeholder="path:line  [if EXPR]  [hit N]  [log MSG]",
+                placeholder='path:line  if tenant == "beta"  hit 3  log msg',
                 id="bp_input",
             ),
-            Static("Enter toggle / set config • Esc close", id="bp_hint"),
+            Static("Enter toggle / set config  •  Esc close", id="bp_hint"),
             id="bp_root",
         )
 

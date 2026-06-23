@@ -58,6 +58,15 @@ class ExpressionInput(Container):
         def control(self) -> ExpressionInput:
             return self._control
 
+    class Cancelled(Message):
+        def __init__(self, control: ExpressionInput) -> None:
+            super().__init__()
+            self._control = control
+
+        @property
+        def control(self) -> ExpressionInput:
+            return self._control
+
     def __init__(
         self,
         *,
@@ -157,6 +166,9 @@ class ExpressionInput(Container):
         if self._history is not None:
             self._history.push(text)
         self.post_message(self.Submitted(self, text=text))
+
+    def cancel(self) -> None:
+        self.post_message(self.Cancelled(self))
 
     def completion_prev(self) -> None:
         if not self._completion_items:
@@ -259,6 +271,10 @@ class _ExpressionArea(TextArea):
                     event.stop()
                     event.prevent_default()
                     return
+                self._owner.cancel()
+                event.stop()
+                event.prevent_default()
+                return
             case "up":
                 self._owner.completion_prev()
                 event.stop()

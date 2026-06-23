@@ -47,6 +47,32 @@ def test_parse_breakpoint_spec_with_condition(tmp_path: Path) -> None:
     assert spec.log_message is None
 
 
+def test_parse_breakpoint_spec_with_unquoted_condition(tmp_path: Path) -> None:
+    source = tmp_path / "service.py"
+    source.write_text("print('ok')\n", encoding="utf-8")
+
+    spec = parse_breakpoint_spec(f'{source}:1 if tenant == "beta" hit 3 log tenant stopped')
+
+    assert spec is not None
+    assert spec.path == str(source.resolve())
+    assert spec.line == 1
+    assert spec.condition == 'tenant == "beta"'
+    assert spec.hit_condition == "3"
+    assert spec.log_message == "tenant stopped"
+
+
+def test_parse_breakpoint_spec_option_value_can_start_with_option_word(tmp_path: Path) -> None:
+    source = tmp_path / "service.py"
+    source.write_text("print('ok')\n", encoding="utf-8")
+
+    spec = parse_breakpoint_spec(f"{source}:1 if count > 2 hit 3 log print tenant")
+
+    assert spec is not None
+    assert spec.condition == "count > 2"
+    assert spec.hit_condition == "3"
+    assert spec.log_message == "print tenant"
+
+
 def test_parse_breakpoint_spec_with_hit_condition(tmp_path: Path) -> None:
     p = tmp_path / "svc.py"
     p.write_text("x = 1\n", encoding="utf-8")

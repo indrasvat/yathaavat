@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import asyncio
 import shlex
+import sys
 import time
 from dataclasses import dataclass
 from pathlib import Path
@@ -24,6 +25,8 @@ from yathaavat.core import SESSION_MANAGER, AppContext, SessionManager
 @dataclass(frozen=True, slots=True)
 class LaunchSpec:
     argv: list[str]
+    debugpy_prefix: list[str] | None = None
+    cwd: str | None = None
 
 
 def parse_launch_spec(value: str) -> LaunchSpec | None:
@@ -36,7 +39,147 @@ def parse_launch_spec(value: str) -> LaunchSpec | None:
         return None
     if not argv:
         return None
-    return LaunchSpec(argv=argv)
+    return _normalise_launch_argv(argv)
+
+
+def _normalise_launch_argv(argv: list[str]) -> LaunchSpec | None:
+    if Path(argv[0]).name != "uv":
+        return LaunchSpec(argv=argv)
+
+    return _normalise_uv_run(argv)
+
+
+def _normalise_uv_run(argv: list[str]) -> LaunchSpec | None:
+    """Translate common uv console-script launches into debugpy launches.
+
+    debugpy runs Python files/modules; it does not resolve arbitrary commands from PATH.
+    For `uv --directory app run tool ...`, run debugpy inside uv's target environment and
+    point it at the generated console-script wrapper.
+    """
+
+    invocation_cwd = Path.cwd()
+    run_cwd = invocation_cwd
+    project_dir = invocation_cwd
+    prefix_args = [argv[0]]
+    run_index: int | None = None
+
+    i = 1
+    while i < len(argv):
+        token = argv[i]
+        if token == "run":
+            run_index = i
+            prefix_args.append(token)
+            break
+        if token in {"--directory", "--project"}:
+            i += 1
+            if i >= len(argv):
+                return None
+            value = _resolve_project_dir(argv[i], base=invocation_cwd)
+            if token == "--directory":
+                run_cwd = value
+                project_dir = value
+            else:
+                project_dir = value
+            prefix_args.extend([token, str(value)])
+        elif token.startswith("--directory="):
+            run_cwd = _resolve_project_dir(token.removeprefix("--directory="), base=invocation_cwd)
+            project_dir = run_cwd
+            prefix_args.append(f"--directory={run_cwd}")
+        elif token.startswith("--project="):
+            project_dir = _resolve_project_dir(
+                token.removeprefix("--project="), base=invocation_cwd
+            )
+            prefix_args.append(f"--project={project_dir}")
+        else:
+            prefix_args.append(token)
+        i += 1
+
+    if run_index is None:
+        return None
+
+    run_options, target = _split_uv_run_options(argv[run_index + 1 :])
+    if not target:
+        return None
+
+    first = target[0]
+    if first in {"python", "python3", "python3.14"}:
+        if len(target) < 2:
+            return None
+        return LaunchSpec(
+            argv=target[1:],
+            debugpy_prefix=[*prefix_args, *run_options, "--with", "debugpy", "python"],
+            cwd=str(run_cwd),
+        )
+
+    target_path = Path(first).expanduser()
+    if target_path.is_absolute() or "/" in first:
+        if not target_path.is_absolute():
+            target_path = run_cwd / target_path
+        return LaunchSpec(
+            argv=[str(target_path.resolve()), *target[1:]],
+            debugpy_prefix=[*prefix_args, *run_options, "--with", "debugpy", "python"],
+            cwd=str(run_cwd),
+        )
+
+    script_path = project_dir / ".venv" / ("Scripts" if sys.platform == "win32" else "bin") / first
+    if not script_path.exists():
+        return None
+
+    return LaunchSpec(
+        argv=[str(script_path.resolve()), *target[1:]],
+        debugpy_prefix=[*prefix_args, *run_options, "--with", "debugpy", "python"],
+        cwd=str(run_cwd),
+    )
+
+
+_UV_RUN_OPTIONS_WITH_VALUE = {
+    "-p",
+    "--python",
+    "--with",
+    "--with-editable",
+    "--with-requirements",
+    "--env-file",
+    "--index",
+    "--default-index",
+    "--index-url",
+    "--extra-index-url",
+    "--find-links",
+    "--config-file",
+}
+
+
+def _split_uv_run_options(args: list[str]) -> tuple[list[str], list[str]]:
+    options: list[str] = []
+    i = 0
+    while i < len(args):
+        token = args[i]
+        if token == "--":
+            return options, args[i + 1 :]
+        if not token.startswith("-"):
+            return options, args[i:]
+
+        options.append(token)
+        if _uv_run_option_takes_value(token):
+            i += 1
+            if i >= len(args):
+                return options, []
+            options.append(args[i])
+        i += 1
+
+    return options, []
+
+
+def _uv_run_option_takes_value(token: str) -> bool:
+    if "=" in token:
+        return False
+    return token in _UV_RUN_OPTIONS_WITH_VALUE
+
+
+def _resolve_project_dir(value: str, *, base: Path | None = None) -> Path:
+    p = Path(value).expanduser()
+    if not p.is_absolute():
+        p = (base or Path.cwd()) / p
+    return p.resolve()
 
 
 def _relative_time(timestamp: float) -> str:
@@ -128,6 +271,8 @@ class LaunchPicker(ModalScreen[None]):
             li.launch_command = row.command  # type: ignore[attr-defined]
             li.row_kind = row.kind  # type: ignore[attr-defined]
             lv.append(li)
+        if rows and lv.index is None:
+            lv.index = 0
 
     @dataclass(frozen=True, slots=True)
     class _Row:
@@ -210,7 +355,10 @@ class LaunchPicker(ModalScreen[None]):
         expanded = _expand_tilde(raw)
         spec = parse_launch_spec(expanded)
         if spec is None:
-            self._ctx.host.notify("Invalid command.", timeout=2.0)
+            self._ctx.host.notify(
+                "Invalid launch. Use a Python file/module or a synced uv run command.",
+                timeout=3.0,
+            )
             return
 
         manager: SessionManager | None
@@ -233,7 +381,11 @@ class LaunchPicker(ModalScreen[None]):
 
         async def _launch() -> None:
             try:
-                await manager.launch(spec.argv)
+                await manager.launch(
+                    spec.argv,
+                    debugpy_prefix=spec.debugpy_prefix,
+                    cwd=spec.cwd,
+                )
             except Exception as exc:
                 self._ctx.host.notify(str(exc), timeout=3.0)
 
