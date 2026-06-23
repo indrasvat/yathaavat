@@ -1,0 +1,97 @@
+/* ============================================================================
+   PHOSPHOR · ambient.css
+   CSS-ONLY ambient backgrounds — the *default* realization of the "subtle
+   animated background" pattern. Cheapest possible (GPU transform/opacity only),
+   safe on every phone and browser, and the first thing you should reach for.
+   The canvas generators (ambient.js) are heavier OPTIONS — not the default.
+   See references/ambient-backgrounds.md.
+
+   USAGE — drop one element at the top of the hero (or page), behind content:
+     <div class="ambient ambient-aurora" aria-hidden="true">
+       <span></span><span></span><span></span>
+     </div>
+   or:
+     <div class="ambient ambient-grid" aria-hidden="true"></div>
+
+   The wrapper is absolutely positioned + pointer-events:none. Put your hero
+   content in a `position:relative` sibling above it.
+   ============================================================================ */
+
+.ambient {
+  position: absolute;
+  inset: 0;
+  z-index: 0;
+  overflow: hidden;
+  pointer-events: none;
+  user-select: none;
+  /* fade the whole thing out toward the bottom so content sits cleanly */
+  -webkit-mask-image: linear-gradient(to bottom, black 55%, transparent 100%);
+  mask-image: linear-gradient(to bottom, black 55%, transparent 100%);
+}
+
+/* ── AURORA: slow-drifting blurred accent blobs. The flagship CSS option. ──
+   Reads as "expensive ambient light," works for almost any product. */
+.ambient-aurora > span {
+  position: absolute;
+  border-radius: 50%;
+  filter: blur(60px);
+  opacity: 0.5;
+  mix-blend-mode: screen;
+  will-change: transform;
+}
+.ambient-aurora > span:nth-child(1) {
+  width: 46vw; height: 46vw; top: -8vw; left: 8vw;
+  background: radial-gradient(circle, color-mix(in oklch, var(--accent) 55%, transparent), transparent 68%);
+  animation: aurora-a 26s ease-in-out infinite alternate;
+}
+.ambient-aurora > span:nth-child(2) {
+  width: 38vw; height: 38vw; top: -4vw; right: 6vw; left: auto;
+  background: radial-gradient(circle, color-mix(in oklch, var(--amber) 40%, transparent), transparent 70%);
+  animation: aurora-b 32s ease-in-out infinite alternate;
+}
+.ambient-aurora > span:nth-child(3) {
+  width: 52vw; height: 52vw; top: 2vw; left: 24vw;
+  background: radial-gradient(circle, color-mix(in oklch, var(--accent-dim) 50%, transparent), transparent 72%);
+  animation: aurora-c 38s ease-in-out infinite alternate;
+}
+@keyframes aurora-a { from { transform: translate3d(0,0,0) scale(1); } to { transform: translate3d(6vw,4vw,0) scale(1.15); } }
+@keyframes aurora-b { from { transform: translate3d(0,0,0) scale(1.1); } to { transform: translate3d(-5vw,5vw,0) scale(0.9); } }
+@keyframes aurora-c { from { transform: translate3d(0,0,0) scale(0.95); } to { transform: translate3d(-4vw,-3vw,0) scale(1.1); } }
+
+/* ── GRID: a faint technical dot-grid with a slow parallax drift. ──
+   Clean and "infrastructural." Great for dev tools, infra, CLIs. */
+.ambient-grid::before {
+  content: "";
+  position: absolute;
+  inset: -20% -20% 0 -20%;
+  background-image: radial-gradient(color-mix(in oklch, var(--accent) 40%, transparent) 1px, transparent 1.4px);
+  background-size: 26px 26px;
+  opacity: 0.18;
+  -webkit-mask-image: radial-gradient(ellipse 70% 60% at 50% 30%, black, transparent 75%);
+  mask-image: radial-gradient(ellipse 70% 60% at 50% 30%, black, transparent 75%);
+  animation: grid-drift 40s linear infinite;
+  will-change: transform;
+}
+@keyframes grid-drift { from { transform: translateY(0); } to { transform: translateY(26px); } }
+
+/* ── GLOW WASH: just a breathing radial accent bloom (zero geometry). ──
+   The absolute minimum — use when you want atmosphere but no motion noise. */
+.ambient-wash::before {
+  content: "";
+  position: absolute;
+  inset: 0;
+  background: radial-gradient(ellipse 60% 50% at 50% 0%, color-mix(in oklch, var(--accent) 18%, transparent), transparent 60%);
+  animation: wash-breathe 8s ease-in-out infinite alternate;
+}
+@keyframes wash-breathe { from { opacity: 0.7; } to { opacity: 1; } }
+
+/* Honor reduced motion AND drop motion on small screens by default — the CSS
+   options are cheap, but stillness is calmer on phones. Re-enable per-page if
+   you really want motion on mobile. */
+@media (prefers-reduced-motion: reduce) {
+  .ambient-aurora > span, .ambient-grid::before, .ambient-wash::before { animation: none; }
+}
+@media (max-width: 760px) {
+  .ambient-aurora > span:nth-child(3) { display: none; } /* trim overdraw on phones */
+  .ambient-grid::before { animation-duration: 60s; }
+}

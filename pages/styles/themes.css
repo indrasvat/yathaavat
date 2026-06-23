@@ -1,0 +1,190 @@
+/* ============================================================================
+   PHOSPHOR · themes.css
+   Six complete, internally-consistent palettes. The DEFAULT (phosphor green)
+   lives in tokens.css :root. The five below are drop-in variations — pick one
+   per tool so every page you build feels related but never identical.
+
+   USAGE:  <html data-theme="ice">  (or on <body>, or any wrapper)
+   Each theme only overrides the neutral ramp, the accent ramp, the warm
+   secondary, and --bg. Every semantic token (--ink, --accent, --panel …) and
+   every effect (glow, scanlines, buttons) re-resolves automatically.
+
+   Ramps are authored in OKLCH: lightness sweeps the same curve in every theme,
+   only HUE and peak CHROMA change — that's what keeps them consistent siblings.
+   Out-of-gamut steps are gamut-mapped by the browser; sRGB-only displays still
+   get a faithful rendering.
+
+   The six:
+     (default)  phosphor   green   — CRT phosphor, the original
+     amber      amber/gold        — DEC VT220 amber monochrome, warmest
+     ice        cyan            — cold IBM/terminal blue, clinical & precise
+     ultraviolet violet/indigo   — deep-space, quiet luxury
+     magenta    hot pink          — synthwave, loudest & most playful
+     plasma     red-orange        — heat / alarm / high-energy
+   ============================================================================ */
+
+/* ───────────────────────────── AMBER ───────────────────────────── */
+/* Neutral hue ~70 (warm), accent hue ~75 (gold), secondary = phosphor green. */
+[data-theme="amber"] {
+  --bg: #100d08;
+  --gray-1: oklch(17.5% 0.012 70);
+  --gray-2: oklch(20.8% 0.014 70);
+  --gray-3: oklch(24.8% 0.016 70);
+  --gray-4: oklch(27.8% 0.017 70);
+  --gray-5: oklch(30.8% 0.018 70);
+  --gray-6: oklch(34.4% 0.020 70);
+  --gray-7: oklch(39.7% 0.022 70);
+  --gray-8: oklch(48.6% 0.024 70);
+  --gray-9: oklch(53.3% 0.026 70);
+  --gray-10: oklch(58% 0.026 70);
+  --gray-11: oklch(78% 0.022 75);
+  --gray-12: oklch(94% 0.020 80);
+
+  --accent-1: oklch(17.5% 0.030 70);
+  --accent-2: oklch(21% 0.045 72);
+  --accent-3: oklch(27% 0.060 73);
+  --accent-4: oklch(32% 0.075 74);
+  --accent-5: oklch(37% 0.090 75);
+  --accent-6: oklch(43% 0.105 76);
+  --accent-7: oklch(50% 0.120 77);
+  --accent-8: oklch(58% 0.135 78);
+  --accent-9: oklch(80% 0.165 82);
+  --accent-10: oklch(76% 0.150 82);
+  --accent-11: oklch(86% 0.170 84);
+  --accent-12: oklch(94% 0.080 88);
+
+  --amber: oklch(0.78 0.16 150);        /* secondary flips to green for contrast */
+  --amber-bright: oklch(0.88 0.19 150);
+}
+
+/* ───────────────────────────── ICE (cyan) ───────────────────────────── */
+[data-theme="ice"] {
+  --bg: #080f12;
+  --gray-1: oklch(17.8% 0.012 215);
+  --gray-2: oklch(21.1% 0.014 215);
+  --gray-3: oklch(25.1% 0.016 213);
+  --gray-4: oklch(28.1% 0.017 213);
+  --gray-5: oklch(31% 0.018 211);
+  --gray-6: oklch(34.6% 0.020 210);
+  --gray-7: oklch(39.9% 0.022 208);
+  --gray-8: oklch(48.8% 0.024 205);
+  --gray-9: oklch(53.5% 0.026 203);
+  --gray-10: oklch(58.1% 0.026 201);
+  --gray-11: oklch(76.6% 0.022 200);
+  --gray-12: oklch(94.7% 0.010 200);
+
+  --accent-1: oklch(17.8% 0.030 210);
+  --accent-2: oklch(21.1% 0.045 207);
+  --accent-3: oklch(27.1% 0.060 205);
+  --accent-4: oklch(31.8% 0.075 203);
+  --accent-5: oklch(36.5% 0.090 201);
+  --accent-6: oklch(41.3% 0.100 199);
+  --accent-7: oklch(46.7% 0.110 197);
+  --accent-8: oklch(52.7% 0.120 196);
+  --accent-9: oklch(76% 0.140 195);
+  --accent-10: oklch(72% 0.130 195);
+  --accent-11: oklch(82% 0.150 194);
+  --accent-12: oklch(92% 0.070 193);
+
+  --amber: oklch(0.78 0.15 70);          /* warm amber pops against cold field */
+  --amber-bright: oklch(0.9 0.17 75);
+}
+
+/* ──────────────────────────── ULTRAVIOLET ──────────────────────────── */
+[data-theme="ultraviolet"] {
+  --bg: #0c0a14;
+  --gray-1: oklch(17.8% 0.014 285);
+  --gray-2: oklch(21.1% 0.018 285);
+  --gray-3: oklch(25.1% 0.022 283);
+  --gray-4: oklch(28.1% 0.024 282);
+  --gray-5: oklch(31% 0.026 281);
+  --gray-6: oklch(34.6% 0.028 280);
+  --gray-7: oklch(39.9% 0.030 279);
+  --gray-8: oklch(48.8% 0.032 278);
+  --gray-9: oklch(53.5% 0.036 277);
+  --gray-10: oklch(58.1% 0.036 276);
+  --gray-11: oklch(76.6% 0.028 276);
+  --gray-12: oklch(94.7% 0.012 276);
+
+  --accent-1: oklch(17.8% 0.040 285);
+  --accent-2: oklch(21.1% 0.055 284);
+  --accent-3: oklch(27.1% 0.080 283);
+  --accent-4: oklch(31.8% 0.105 282);
+  --accent-5: oklch(36.5% 0.130 281);
+  --accent-6: oklch(41.3% 0.150 280);
+  --accent-7: oklch(46.7% 0.170 279);
+  --accent-8: oklch(52.7% 0.190 278);
+  --accent-9: oklch(68% 0.210 278);
+  --accent-10: oklch(64% 0.195 278);
+  --accent-11: oklch(74% 0.220 277);
+  --accent-12: oklch(90% 0.110 277);
+
+  --amber: oklch(0.8 0.16 195);          /* secondary = cyan */
+  --amber-bright: oklch(0.9 0.18 195);
+}
+
+/* ──────────────────────────── MAGENTA ──────────────────────────── */
+[data-theme="magenta"] {
+  --bg: #120810;
+  --gray-1: oklch(17.8% 0.014 335);
+  --gray-2: oklch(21.1% 0.018 335);
+  --gray-3: oklch(25.1% 0.022 333);
+  --gray-4: oklch(28.1% 0.024 332);
+  --gray-5: oklch(31% 0.026 331);
+  --gray-6: oklch(34.6% 0.028 330);
+  --gray-7: oklch(39.9% 0.030 329);
+  --gray-8: oklch(48.8% 0.032 328);
+  --gray-9: oklch(53.5% 0.036 327);
+  --gray-10: oklch(58.1% 0.036 326);
+  --gray-11: oklch(76.6% 0.026 326);
+  --gray-12: oklch(94.7% 0.012 326);
+
+  --accent-1: oklch(17.8% 0.045 335);
+  --accent-2: oklch(21.1% 0.065 334);
+  --accent-3: oklch(27.1% 0.095 333);
+  --accent-4: oklch(31.8% 0.125 332);
+  --accent-5: oklch(36.5% 0.150 331);
+  --accent-6: oklch(41.3% 0.175 330);
+  --accent-7: oklch(46.7% 0.200 329);
+  --accent-8: oklch(52.7% 0.225 328);
+  --accent-9: oklch(68% 0.255 328);
+  --accent-10: oklch(64% 0.235 328);
+  --accent-11: oklch(74% 0.265 327);
+  --accent-12: oklch(90% 0.130 326);
+
+  --amber: oklch(0.82 0.15 195);         /* secondary = cyan (synthwave duo) */
+  --amber-bright: oklch(0.9 0.17 195);
+}
+
+/* ──────────────────────────── PLASMA (red-orange) ──────────────────────────── */
+[data-theme="plasma"] {
+  --bg: #120a07;
+  --gray-1: oklch(17.8% 0.014 35);
+  --gray-2: oklch(21.1% 0.018 35);
+  --gray-3: oklch(25.1% 0.020 33);
+  --gray-4: oklch(28.1% 0.022 32);
+  --gray-5: oklch(31% 0.024 31);
+  --gray-6: oklch(34.6% 0.026 30);
+  --gray-7: oklch(39.9% 0.028 29);
+  --gray-8: oklch(48.8% 0.030 28);
+  --gray-9: oklch(53.5% 0.034 27);
+  --gray-10: oklch(58.1% 0.034 27);
+  --gray-11: oklch(76.6% 0.026 28);
+  --gray-12: oklch(94.7% 0.012 30);
+
+  --accent-1: oklch(17.8% 0.045 32);
+  --accent-2: oklch(21.1% 0.065 31);
+  --accent-3: oklch(27.1% 0.090 30);
+  --accent-4: oklch(31.8% 0.115 29);
+  --accent-5: oklch(36.5% 0.140 29);
+  --accent-6: oklch(41.3% 0.165 28);
+  --accent-7: oklch(46.7% 0.185 28);
+  --accent-8: oklch(52.7% 0.200 27);
+  --accent-9: oklch(66% 0.225 28);
+  --accent-10: oklch(62% 0.210 27);
+  --accent-11: oklch(72% 0.235 28);
+  --accent-12: oklch(90% 0.110 35);
+
+  --amber: oklch(0.82 0.16 85);          /* secondary = gold */
+  --amber-bright: oklch(0.92 0.18 88);
+}

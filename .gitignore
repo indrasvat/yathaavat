@@ -34,3 +34,6 @@ src/yathaavat/_version.py
 .claude/artifacts/
 .claude/screenshots/
 .codemap/
+
+# Wrangler local cache (account/project state) — not part of the repo
+.wrangler/

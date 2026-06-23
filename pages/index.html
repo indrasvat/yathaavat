@@ -1,0 +1,325 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1" />
+  <meta name="color-scheme" content="dark" />
+  <title>yathaavat — see your program as it really runs</title>
+  <meta name="description" content="yathaavat is a visual debugger for Python 3.14+ that lives in your terminal. Stack, source, locals, exceptions, and asyncio tasks in one cockpit. Launch, connect, or safely attach. Keyboard-first, over SSH." />
+  <meta property="og:type" content="website" />
+  <meta property="og:title" content="yathaavat — see your program as it really runs" />
+  <meta property="og:description" content="A visual debugger for Python 3.14+ in your terminal. The whole running program, in one cockpit — exactly as it is." />
+  <meta property="og:url" content="https://yathaavat.pages.dev/" />
+  <meta property="og:image" content="https://yathaavat.pages.dev/assets/og-card.png" />
+  <meta name="twitter:card" content="summary_large_image" />
+  <link rel="icon" href="/assets/favicon.svg" type="image/svg+xml" />
+  <link rel="preconnect" href="https://fonts.googleapis.com" />
+  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
+  <link href="https://fonts.googleapis.com/css2?family=Spectral:ital,wght@0,300;0,400;0,500;1,300&family=JetBrains+Mono:wght@400;500;600&display=swap" rel="stylesheet" />
+  <link rel="stylesheet" href="/styles/site.css" />
+  <script>document.documentElement.className += ' js';</script>
+</head>
+<body>
+  <svg width="0" height="0" style="position:absolute" aria-hidden="true"><defs>
+    <g id="mk" fill="none" stroke="currentColor" stroke-width="2.4" stroke-linecap="round" stroke-linejoin="round">
+      <path d="M7 19 V9 a2 2 0 0 1 2-2 H19" /><path d="M45 7 H55 a2 2 0 0 1 2 2 V19" />
+      <path d="M57 45 V55 a2 2 0 0 1-2 2 H45" /><path d="M19 57 H9 a2 2 0 0 1-2-2 V45" />
+      <path d="M21 32.5 H43" /><path d="M16 29 L21 32.5 L16 36 Z" fill="currentColor" stroke="none" />
+      <circle cx="46.5" cy="32.5" r="2.6" fill="currentColor" stroke="none" />
+    </g>
+  </defs></svg>
+
+  <!-- NAV -->
+  <header class="nav" id="nav">
+    <div class="wrap nav-in">
+      <a class="brand" href="#top" aria-label="yathaavat">
+        <svg class="mk" viewBox="0 0 64 64" aria-hidden="true"><use href="#mk" /></svg>
+        <span class="nm">yathaavat</span>
+      </a>
+      <nav class="nav-links">
+        <a href="#features">Features</a>
+        <a href="#steer">Steer</a>
+        <a href="#why">Why</a>
+        <a href="https://github.com/indrasvat/yathaavat">GitHub</a>
+      </nav>
+      <div class="nav-cta">
+        <a class="ext link-quiet" href="/docs">Docs</a>
+        <a class="btn btn-primary" href="#install">Install</a>
+      </div>
+    </div>
+  </header>
+
+  <main id="top">
+    <!-- HERO + COCKPIT -->
+    <section class="hero">
+      <div class="wrap">
+        <div class="inner">
+          <p class="eyebrow">Visual debugger · Python 3.14+</p>
+          <h1>See your program as it really runs.</h1>
+          <p class="lead">
+            <span class="yh">yathaavat</span> is a visual debugger for Python that lives in your terminal —
+            stack, source, locals, exceptions, and asyncio tasks in <b>one cockpit</b>. Launch it, connect to it,
+            or safely attach. Keyboard-first, at home over SSH.
+          </p>
+          <div class="hero-actions" id="install">
+            <div class="cmd">
+              <code id="cmd1"><span class="sigil">$</span>curl -fsSL https://yathaavat.pages.dev/install | sh</code>
+              <button data-copy="#cmd1" type="button">Copy</button>
+            </div>
+            <a class="link-quiet" href="/docs">read the docs</a>
+          </div>
+        </div>
+
+        <div class="cockpit-wrap reveal">
+          <div class="frame">
+            <div class="bar">
+              <span class="dots"><i></i><i></i><i></i></span>
+              <span class="path" id="path">yathaavat · demo_target.py · PAUSED</span>
+              <span class="tabs" role="tablist" aria-label="views">
+                <button role="tab" aria-selected="true"  data-s="0" data-path="demo_target.py · PAUSED">Paused</button>
+                <button role="tab" aria-selected="false" data-s="1" data-path="demo_exceptions.py · EXCEPTION">Exceptions</button>
+                <button role="tab" aria-selected="false" data-s="2" data-path="demo_async_tasks.py · CONNECTED">Async</button>
+              </span>
+            </div>
+            <div class="shots">
+              <img class="on" src="/screenshots/cockpit.png"    width="1800" height="988" alt="yathaavat paused at a breakpoint: stack, source, and locals in one view" />
+              <img        src="/screenshots/exceptions.png" width="1800" height="988" alt="An exception stop showing the traceback tree" loading="lazy" />
+              <img        src="/screenshots/async.png"      width="1800" height="988" alt="Connected to a running asyncio service, paused inside a coroutine" loading="lazy" />
+            </div>
+          </div>
+          <div class="legend">
+            <div class="cell"><h4>Stack</h4><p>Every frame, and exactly where you are.</p></div>
+            <div class="cell"><h4>Source</h4><p>Live gutter markers — <span style="color:var(--ok)">●</span> <span style="color:var(--accent-soft)">▶</span> — and your current line.</p></div>
+            <div class="cell"><h4>Locals &amp; watches</h4><p>Real values, expanded inline, tracked as they change.</p></div>
+            <div class="cell"><h4>Console</h4><p>Evaluate any expression, with tab-completion.</p></div>
+          </div>
+        </div>
+      </div>
+    </section>
+
+    <!-- FEATURES (max 2 consecutive splits) -->
+    <section id="features">
+      <div class="wrap">
+        <div class="sec-head reveal">
+          <h2>The hard parts, made legible</h2>
+          <p>The states that usually send you back to <code class="inl">print()</code> — exceptions and async — rendered so you can actually read them.</p>
+        </div>
+
+        <div style="margin-top:clamp(3rem,6vw,5rem)">
+          <div class="feat reveal">
+            <div class="vis"><span class="tag">Exception stop</span><div class="shot"><img src="/screenshots/exc-tree.png" width="603" height="316" alt="Traceback tree with a chained cause" /></div></div>
+            <div class="txt">
+              <h3>Exceptions, read like a story</h3>
+              <p>On every exception stop, <span class="yh">yathaavat</span> draws the traceback as a tree — chained causes labelled <code class="inl">↳ caused by</code>, full <code class="inl">ExceptionGroup</code> support, the failing frame highlighted.</p>
+              <div class="keys"><kbd>Enter</kbd> jump to frame <kbd>y</kbd> copy <kbd>a</kbd> break at raise</div>
+            </div>
+          </div>
+
+          <div class="feat-wide reveal">
+            <div class="txt">
+              <h3>Every value, no guessing</h3>
+              <p>Expand locals and globals inline, watch expressions across steps, and evaluate anything in a console with real DAP tab-completion. Edit a value in place and keep going.</p>
+              <div class="keys"><kbd>Enter</kbd> expand <kbd>e</kbd> edit <kbd>Ctrl+W</kbd> watch <kbd>g</kbd> scope</div>
+            </div>
+            <div class="vis"><span class="tag">Locals · expanded inline</span><div class="shot"><img src="/screenshots/inspect.png" width="1800" height="335" alt="Expandable locals showing real values: an InspectorBox with answer, label, tags, and a long items list" /></div></div>
+          </div>
+        </div>
+      </div>
+    </section>
+
+    <hr class="rule" />
+
+    <!-- STEER (keyboard story, full-width, different family) -->
+    <section id="steer">
+      <div class="wrap">
+        <div class="sec-head reveal" style="max-width:46rem">
+          <p class="eyebrow">How you steer</p>
+          <h2>Drive execution at the speed of thought</h2>
+          <p>Stepping is a transport control, not a menu. Your hands never leave the keyboard — continue, step, run-to-cursor, and you're three frames deeper before a mouse would have found the button.</p>
+        </div>
+        <div class="steer-stage reveal">
+          <div class="src"><img src="/screenshots/source.png" width="1800" height="948" alt="Source view with the execution line and gutter markers" loading="lazy" /></div>
+          <div class="steer">
+            <div class="ctrl"><span class="gl">▶</span><kbd>c</kbd><span class="lbl">Continue</span></div>
+            <div class="ctrl"><span class="gl">↷</span><kbd>n</kbd><span class="lbl">Step over</span></div>
+            <div class="ctrl"><span class="gl">↳</span><kbd>s</kbd><span class="lbl">Step in</span></div>
+            <div class="ctrl"><span class="gl">↰</span><kbd>u</kbd><span class="lbl">Step out</span></div>
+            <div class="ctrl"><span class="gl">⏎</span><kbd>Enter</kbd><span class="lbl">Run to cursor</span></div>
+            <div class="ctrl"><span class="gl">⌖</span><kbd>Ctrl+E</kbd><span class="lbl">Jump to line</span></div>
+          </div>
+        </div>
+
+        <div class="keymap reveal">
+          <div class="kgroup">
+            <span class="glabel">Sessions</span>
+            <div class="grid">
+              <div class="kv"><kbd>Ctrl+R</kbd><span>Launch a script</span></div>
+              <div class="kv"><kbd>Ctrl+K</kbd><span>Connect to a server</span></div>
+              <div class="kv"><kbd>Ctrl+A</kbd><span>Attach to a process</span></div>
+              <div class="kv"><kbd>Ctrl+P</kbd><span>Command palette</span></div>
+            </div>
+          </div>
+          <div class="kgroup">
+            <span class="glabel">Inspect</span>
+            <div class="grid">
+              <div class="kv"><kbd>b</kbd><span>Toggle breakpoint</span></div>
+              <div class="kv"><kbd>Ctrl+F</kbd><span>Find in source</span></div>
+              <div class="kv"><kbd>Ctrl+G</kbd><span>Go to line</span></div>
+              <div class="kv"><kbd>F2</kbd><span>Zoom a pane</span></div>
+            </div>
+          </div>
+        </div>
+      </div>
+    </section>
+
+    <hr class="rule" />
+
+    <!-- THREE WAYS IN -->
+    <section>
+      <div class="wrap">
+        <div class="sec-head reveal" style="max-width:46rem">
+          <h2>Three ways into a running program</h2>
+          <p>However the code is running, <span class="yh">yathaavat</span> can reach it — with fuzzy discovery and history at every door.</p>
+        </div>
+        <div class="ways">
+          <div class="way reveal">
+            <div class="top"><kbd>Ctrl+R</kbd> <span class="hint">launch</span></div>
+            <h3>Launch a script</h3>
+            <p>Start any Python file under debugpy. Fuzzy file discovery and <code class="inl">~</code> expansion get you running in two keystrokes.</p>
+          </div>
+          <div class="way reveal">
+            <div class="top"><kbd>Ctrl+K</kbd> <span class="hint">connect</span></div>
+            <h3>Connect to a server</h3>
+            <p>Attach to a debugpy endpoint by host and port. The picker scans for live servers so you rarely type an address.</p>
+          </div>
+          <div class="way reveal">
+            <div class="top"><kbd>Ctrl+A</kbd> <span class="hint">attach</span></div>
+            <h3>Attach to a process</h3>
+            <p>Attach to a live PID. On Python 3.14, attach <em>safely</em> to a process that never imported debugpy.</p>
+          </div>
+        </div>
+      </div>
+    </section>
+
+    <hr class="rule" />
+
+    <!-- WHY + SPECS -->
+    <section id="why">
+      <div class="wrap why-grid">
+        <div class="reveal">
+          <p class="eyebrow">Why</p>
+          <h2>The terminal you already live in</h2>
+          <p>The truth of a running program shouldn't cost you a GUI you can't SSH into, or a litter of <code class="inl">print()</code> you'll forget to delete. <span class="yh">yathaavat</span> renders the whole runtime where you already work — no browser, no daemon, no ceremony.</p>
+        </div>
+        <dl class="specs reveal">
+          <div class="row"><dt>Runtime</dt><dd><b>Python 3.14+</b> on CPython, via debugpy and the Debug Adapter Protocol</dd></div>
+          <div class="row"><dt>Ways in</dt><dd>Launch, connect, attach, and <b>safe attach</b> on 3.14</dd></div>
+          <div class="row"><dt>Interface</dt><dd>A Textual TUI — keyboard-first, mouse-optional</dd></div>
+          <div class="row"><dt>At home in</dt><dd>SSH sessions, tmux panes, the terminal you trust</dd></div>
+          <div class="row"><dt>License</dt><dd><b>MIT</b> — install with <code class="inl">uv</code>, no account required</dd></div>
+        </dl>
+      </div>
+    </section>
+
+    <hr class="rule" />
+
+    <!-- FAQ -->
+    <section>
+      <div class="wrap">
+        <div class="sec-head reveal" style="max-width:46rem"><h2>Questions, answered</h2></div>
+        <div class="faq reveal">
+          <details><summary>Do I have to change my code? <span class="pm">+</span></summary>
+            <p class="ans">No. Launch any script as-is, connect to a debugpy server, or on Python 3.14 attach to a process that never imported debugpy via safe attach.</p></details>
+          <details><summary>Does it work over SSH and tmux? <span class="pm">+</span></summary>
+            <p class="ans">Yes. <span class="yh">yathaavat</span> is keyboard-first and mouse-optional, designed from the start for remote sessions and split panes.</p></details>
+          <details><summary>What do I need to run it? <span class="pm">+</span></summary>
+            <p class="ans">Python 3.14+ and <code>uv</code>. Install in one line — no PyPI account, no browser, no build step.</p></details>
+          <details><summary>How is this different from pdb or an IDE debugger? <span class="pm">+</span></summary>
+            <p class="ans"><code>pdb</code> shows one line at a time; an IDE debugger needs the IDE. <span class="yh">yathaavat</span> gives you the whole frame at once, in the terminal.</p></details>
+          <details><summary>Is it actually open source? <span class="pm">+</span></summary>
+            <p class="ans">MIT-licensed, end to end. Install with <code>uvx --from git+https://github.com/indrasvat/yathaavat yathaavat</code>.</p></details>
+        </div>
+      </div>
+    </section>
+
+    <hr class="rule" />
+
+    <!-- CTA -->
+    <section class="cta">
+      <div class="wrap inner">
+        <div class="lens-box"><canvas id="lens" aria-hidden="true"></canvas></div>
+        <h2>Nothing hidden. Nothing assumed.</h2>
+        <p>Install <span class="yh">yathaavat</span> and watch your next breakpoint exactly as it is.</p>
+        <div class="acts">
+          <div class="cmd">
+            <code id="cmd2"><span class="sigil">$</span>curl -fsSL https://yathaavat.pages.dev/install | sh</code>
+            <button data-copy="#cmd2" type="button">Copy</button>
+          </div>
+          <a class="btn btn-ghost" href="/docs">Read the docs</a>
+        </div>
+      </div>
+    </section>
+  </main>
+
+  <footer>
+    <div class="wrap foot-grid">
+      <div>
+        <div class="foot-brand">
+          <svg class="mk" viewBox="0 0 64 64" aria-hidden="true"><use href="#mk" /></svg>
+          <span class="nm">yathaavat</span>
+        </div>
+        <p class="foot-meta"><span class="sk">yathāvat</span> — “as it is, truly”.<br>© 2026 · MIT licensed.</p>
+      </div>
+      <div class="foot-cols">
+        <div class="col"><h4>Project</h4><a href="https://github.com/indrasvat/yathaavat">GitHub</a><a href="/docs">Documentation</a><a href="/releases">Releases</a></div>
+        <div class="col"><h4>Start</h4><a href="#install">Install</a><a href="#features">Features</a><a href="#steer">Keyboard</a></div>
+      </div>
+    </div>
+  </footer>
+
+  <script src="/scripts/ambient.js"></script>
+  <script>
+    if (window.phosphorAmbient) {
+      phosphorAmbient(document.getElementById('lens'), { mode: 'wireframe', shape: 'icosahedron', opacity: 0.7, spinSpeed: 0.16, parallax: false });
+    }
+    (function () {
+      var tabs = [].slice.call(document.querySelectorAll('.frame .tabs button'));
+      var imgs = [].slice.call(document.querySelectorAll('.frame .shots img'));
+      var path = document.getElementById('path');
+      tabs.forEach(function (t, k) {
+        t.addEventListener('click', function () {
+          tabs.forEach(function (x, i) { x.setAttribute('aria-selected', i === k ? 'true' : 'false'); });
+          imgs.forEach(function (im, i) { im.classList.toggle('on', i === k); });
+          path.textContent = 'yathaavat · ' + t.getAttribute('data-path');
+        });
+      });
+    })();
+    [].forEach.call(document.querySelectorAll('[data-copy]'), function (b) {
+      b.addEventListener('click', function () {
+        var el = document.querySelector(b.getAttribute('data-copy'));
+        var text = el ? el.textContent.replace(/^\$/, '').trim() : '';
+        if (!navigator.clipboard) return;
+        var old = b.textContent;
+        navigator.clipboard.writeText(text).then(function () {
+          b.textContent = 'Copied'; setTimeout(function () { b.textContent = old; }, 1500);
+        }).catch(function () {});
+      });
+    });
+    var nav = document.getElementById('nav');
+    var hasIO = 'IntersectionObserver' in window;
+    if (hasIO) {
+      new IntersectionObserver(function (es) { nav.classList.toggle('scrolled', !es[0].isIntersecting); }, { rootMargin: '-69px 0px 0px 0px' }).observe(document.getElementById('top'));
+    }
+    var reduce = window.matchMedia && matchMedia('(prefers-reduced-motion: reduce)').matches;
+    // Without IntersectionObserver, reveal-on-scroll can't fire — show everything.
+    if (reduce || !hasIO) { [].forEach.call(document.querySelectorAll('.reveal'), function (e) { e.classList.add('in'); }); }
+    else {
+      var io = new IntersectionObserver(function (es) { es.forEach(function (e) { if (e.isIntersecting) { e.target.classList.add('in'); io.unobserve(e.target); } }); }, { threshold: 0.1 });
+      [].forEach.call(document.querySelectorAll('.reveal'), function (e) { io.observe(e); });
+    }
+    fetch('/version.json').then(function (r) { return r.ok ? r.json() : null; }).then(function (v) {
+      if (v && v.version) { var e = document.querySelector('.hero .eyebrow'); if (e) e.textContent = 'Visual debugger · Python 3.14+ · ' + v.version; }
+    }).catch(function () {});
+  </script>
+</body>
+</html>
