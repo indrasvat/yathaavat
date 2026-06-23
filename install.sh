@@ -81,7 +81,9 @@ step() {
     printf '\n%s%s[%s/%s]%s %s%s%s%s\n' \
         "${BOLD}" "${ACCENT}" "$1" "$2" "${RESET}" "${BOLD}" "${TEXT}" "$3" "${RESET}"
 }
-head() {
+# Named 'section' (not 'head') so it never shadows the head(1) coreutil —
+# a function named head() silently hijacks `... | head -1` pipelines.
+section() {
     printf '\n%s▸%s %s%s%s%s\n' "${ACCENT}" "${RESET}" "${BOLD}" "${TEXT}" "$1" "${RESET}"
 }
 
@@ -91,8 +93,10 @@ usage() {
     printf '%sUsage:%s\n' "${DIM}" "${RESET}"
     printf '  curl -fsSL https://yathaavat.pages.dev/install | sh\n'
     printf '  curl ... | sh -s -- [OPTIONS]\n\n'
+    printf '%sBy default, installs the latest published release.%s\n\n' "${DIM}" "${RESET}"
     printf '%sOptions:%s\n' "${DIM}" "${RESET}"
     printf '  %s--version VERSION%s  Install a specific tag (e.g. v0.2.0)\n' "${TEXT}" "${RESET}"
+    printf '  %s--main%s             Install the latest commit on main (rolling/dev)\n' "${TEXT}" "${RESET}"
     printf '  %s--check%s            Check prerequisites and exit\n' "${TEXT}" "${RESET}"
     printf '  %s--dry-run%s          Show what would happen, change nothing\n' "${TEXT}" "${RESET}"
     printf '  %s--uninstall%s        Remove yathaavat\n' "${TEXT}" "${RESET}"
@@ -105,6 +109,8 @@ parse_args() {
     CHECK_ONLY=0
     DRY_RUN=0
     UNINSTALL=0
+    USE_MAIN=0
+    TARGET_DESC=""
     while [ $# -gt 0 ]; do
         case "$1" in
             --version)
@@ -112,11 +118,12 @@ parse_args() {
                 VERSION="$2"
                 shift 2
                 ;;
-            --check)     CHECK_ONLY=1; shift ;;
-            --dry-run)   DRY_RUN=1; shift ;;
-            --uninstall) UNINSTALL=1; shift ;;
-            --help|-h)   usage ;;
-            *)           error_exit "Unknown option: $1 (use --help for usage)" ;;
+            --main|--dev) USE_MAIN=1; shift ;;
+            --check)      CHECK_ONLY=1; shift ;;
+            --dry-run)    DRY_RUN=1; shift ;;
+            --uninstall)  UNINSTALL=1; shift ;;
+            --help|-h)    usage ;;
+            *)            error_exit "Unknown option: $1 (use --help for usage)" ;;
         esac
     done
 }
@@ -168,9 +175,33 @@ ensure_python() {
 }
 
 # --- Install ------------------------------------------------------------------
+# Newest published release tag (vX.Y.Z), resolved via git — no GitHub API
+# rate limits, and git is already a prerequisite. Empty if none/offline.
+# Filters to strict vMAJOR.MINOR.PATCH tags so a prerelease (e.g.
+# v0.10.0-rc.1, which -v:refname can sort ahead of v0.10.0) is never chosen.
+resolve_latest_tag() {
+    git ls-remote --tags --refs --sort=-v:refname "${REPO_URL}" 'v*' 2>/dev/null \
+        | sed -n 's#.*refs/tags/##p' \
+        | grep -m1 -E '^v[0-9]+\.[0-9]+\.[0-9]+$'
+}
+
 build_source() {
     SOURCE="git+${REPO_URL}"
-    [ -z "${VERSION}" ] || SOURCE="${SOURCE}@${VERSION}"
+    if [ -n "${VERSION}" ]; then
+        SOURCE="${SOURCE}@${VERSION}"          # explicit tag wins
+        TARGET_DESC="${VERSION}"
+    elif [ "${USE_MAIN}" -eq 1 ]; then
+        TARGET_DESC="main"                     # rolling: latest commit on main
+    else
+        tag=$(resolve_latest_tag)              # default: newest release tag
+        if [ -n "${tag}" ]; then
+            SOURCE="${SOURCE}@${tag}"
+            TARGET_DESC="${tag}"
+        else
+            warn "Could not resolve a release tag — falling back to main"
+            TARGET_DESC="main"
+        fi
+    fi
 }
 
 do_install() {
@@ -178,8 +209,8 @@ do_install() {
 
     reinstall=""
     if uv tool list 2>/dev/null | grep -q "^${BINARY} "; then
-        existing=$(uv tool list 2>/dev/null | grep "^${BINARY} " | head -1)
-        info "Upgrading existing install (${existing})"
+        existing=$(uv tool list 2>/dev/null | awk -v b="${BINARY}" '$1 == b {print $2; exit}')
+        info "Upgrading existing install (${existing:-unknown} → ${TARGET_DESC})"
         reinstall="--reinstall"
     fi
 
@@ -214,7 +245,7 @@ verify() {
 
 # --- Uninstall / dry-run ------------------------------------------------------
 do_uninstall() {
-    head "Removing ${BINARY}"
+    section "Removing ${BINARY}"
     if ! command -v uv >/dev/null 2>&1; then
         error_exit "uv is required to uninstall ${BINARY}, but it was not found on PATH."
     fi
@@ -228,7 +259,8 @@ do_uninstall() {
 
 do_dry_run() {
     build_source
-    head "Dry run — nothing will change"
+    section "Dry run — nothing will change"
+    info "Resolved:  ${BOLD}${TARGET_DESC}${RESET}"
     info "Would run: ${BOLD}uv tool install --python ${PYTHON_VERSION} ${SOURCE}${RESET}"
     info "Target:    ${DIM}\$HOME/.local/bin/${BINARY}${RESET}"
     if uv tool list 2>/dev/null | grep -q "^${BINARY} "; then
@@ -272,7 +304,7 @@ main() {
     trap cleanup EXIT INT TERM HUP
 
     if [ "${CHECK_ONLY}" -eq 1 ]; then
-        head "Checking prerequisites"
+        section "Checking prerequisites"
         check_prereqs
         printf '\n'
         success "All prerequisites met"
@@ -281,7 +313,7 @@ main() {
     fi
 
     if [ "${DRY_RUN}" -eq 1 ]; then
-        head "Checking prerequisites"
+        section "Checking prerequisites"
         check_prereqs
         do_dry_run
         exit 0
