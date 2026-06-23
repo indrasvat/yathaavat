@@ -32,11 +32,14 @@ permissions:
 jobs:
   deploy:
     runs-on: ubuntu-latest
-    # workflow_run fires regardless of branch — gate head_branch=main.
+    # The Release workflow only runs on `v*` tag pushes, so on its
+    # workflow_run event head_branch is the tag name (e.g. v0.7.0), never
+    # 'main'. Gate on a successful run whose head_branch is a version tag —
+    # gating on 'main' would skip every post-release deploy.
     if: >-
       ${{ github.event_name != 'workflow_run'
           || (github.event.workflow_run.conclusion == 'success'
-              && github.event.workflow_run.head_branch == 'main') }}
+              && startsWith(github.event.workflow_run.head_branch, 'v')) }}
     env:
       REPO: ${{ github.repository }}
     steps:
