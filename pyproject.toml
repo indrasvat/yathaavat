@@ -33,9 +33,12 @@ debugpy = "yathaavat.plugins.debugpy:plugin"
 [tool.hatch.version]
 source = "vcs"
 
+# Keep the default local_scheme (node-and-date) so non-tag builds carry a
+# +g<sha> commit marker (e.g. 0.7.1.dev5+gc5c6758) for traceability. Tagged
+# release builds are clean (e.g. 0.7.0). no-local-version is only needed for
+# PyPI uploads, which this project does not do (installed via uv from git).
 [tool.hatch.version.raw-options]
 version_scheme = "guess-next-dev"
-local_scheme = "no-local-version"
 
 [tool.hatch.build.hooks.vcs]
 version-file = "src/yathaavat/_version.py"
