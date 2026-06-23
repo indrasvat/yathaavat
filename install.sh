@@ -1,313 +1,302 @@
-#!/usr/bin/env bash
-# ╭──────────────────────────────────────────────────────────────╮
-# │  yathaavat installer                                         │
-# │  Terminal-first visual debugger for Python 3.14+             │
-# │  No sudo · No PyPI · Installs via uv                         │
-# ╰──────────────────────────────────────────────────────────────╯
+#!/bin/sh
+# yathaavat installer — POSIX-portable so `curl ... | sh` works under any
+# POSIX shell (bash, dash, ash, busybox sh, ksh, zsh).
+#
+# yathaavat is a visual debugger for Python 3.14+. It installs as a `uv`
+# tool from the GitHub source — no PyPI account, no sudo, no build step.
 #
 # Usage:
-#   curl -fsSL https://raw.githubusercontent.com/indrasvat/yathaavat/main/install.sh | bash
-#   bash install.sh                     # install latest
-#   bash install.sh --version v0.1.0    # install specific version
-#   bash install.sh --check             # check prerequisites only
-#   bash install.sh --dry-run            # show what would happen
-#   bash install.sh --uninstall         # remove yathaavat
-#
-# Prerequisites: uv, python3.14
-# Installs via: uv tool install
+#   curl -fsSL https://yathaavat.pages.dev/install | sh
+#   curl ... | sh -s -- --version v0.2.0
+#   curl ... | sh -s -- --check        # prerequisites only
+#   curl ... | sh -s -- --dry-run      # show what would happen
+#   curl ... | sh -s -- --uninstall    # remove yathaavat
+set -eu
 
-set -uo pipefail
-
-# ── Colors ──────────────────────────────────────────────────────
-if [ -t 1 ]; then
-    RST=$'\033[0m'
-    DIM=$'\033[2m'
-    BOLD=$'\033[1m'
-    RED=$'\033[31m'
-    CYN=$'\033[36m'
-    BGRN=$'\033[92m'
-    BCYN=$'\033[96m'
-    BYEL=$'\033[93m'
-else
-    RST="" DIM="" BOLD="" RED="" CYN="" BGRN="" BCYN="" BYEL=""
-fi
-
-# ── Box-drawing ─────────────────────────────────────────────────
-BW=54
-
-_box_rule() {
-    local left="$1" right="$2" fill=""
-    local i
-    for ((i = 0; i < BW; i++)); do fill="${fill}-"; done
-    printf "  %s%s%s%s%s\n" "$CYN" "$left" "$fill" "$right" "$RST"
-}
-
-_box_line() {
-    local content="$*"
-    local plain
-    plain="$(printf '%s' "$content" | sed $'s/\033\[[0-9;]*m//g')"
-    local dw=${#plain}
-    local pad=$((BW - 1 - dw))
-    if [ "$pad" -lt 0 ]; then pad=0; fi
-    local spaces=""
-    local i
-    for ((i = 0; i < pad; i++)); do spaces="${spaces} "; done
-    printf "  %s|%s %s%s%s|%s\n" "$CYN" "$RST" "$content" "$spaces" "$CYN" "$RST"
-}
-
-# ── Logging ─────────────────────────────────────────────────────
-_info()  { printf "  %s|%s  %s>%s %s\n" "${DIM}${CYN}" "$RST" "$CYN" "$RST" "$*"; }
-_done()  { printf "  %s|%s  %s+%s %s\n" "${DIM}${CYN}" "$RST" "$BGRN" "$RST" "$*"; }
-_warn()  { printf "  %s|%s  %s!  %s%s\n" "${DIM}${CYN}" "$RST" "$BYEL" "$*" "$RST"; }
-_fail()  { printf "  %s|%s  %sx%s %s\n" "${DIM}${CYN}" "$RST" "$RED" "$RST" "$*"; }
-_step()  { printf "  %s|%s  %s>%s %s\n" "${DIM}${CYN}" "$RST" "$BCYN" "$RST" "$*"; }
-
-# ── Configuration ───────────────────────────────────────────────
 REPO="indrasvat/yathaavat"
 REPO_URL="https://github.com/${REPO}"
-VERSION=""
-CHECK_ONLY="false"
-DRY_RUN="false"
-UNINSTALL="false"
+BINARY="yathaavat"
+PYTHON_VERSION="3.14"
 
-# ── Argument parsing ────────────────────────────────────────────
-while [ $# -gt 0 ]; do
-    case "$1" in
-        --version|-v)
-            shift
-            VERSION="${1:?--version requires a tag (e.g. v0.1.0)}"
-            ;;
-        --check)
-            CHECK_ONLY="true"
-            ;;
-        --dry-run|-n)
-            DRY_RUN="true"
-            ;;
-        --uninstall)
-            UNINSTALL="true"
-            ;;
-        --help|-h)
-            printf "Usage: %s [--version TAG] [--check] [--dry-run] [--uninstall]\n" "$0"
-            printf "\n  --version TAG  Install specific version (default: latest)\n"
-            printf "  --check        Check prerequisites only\n"
-            printf "  --dry-run      Show what would happen without installing\n"
-            printf "  --uninstall    Remove yathaavat\n"
-            exit 0
-            ;;
-        *)
-            printf "%sUnknown option: %s%s\n" "$RED" "$1" "$RST" >&2
-            exit 2
-            ;;
-    esac
-    shift
-done
-
-# ── Banner ──────────────────────────────────────────────────────
-show_banner() {
-    printf "\n"
-    _box_rule "+" "+"
-    _box_line ""
-    if [ "$DRY_RUN" = "true" ]; then
-        _box_line "${BOLD}yathaavat${RST}  ${BYEL}[DRY RUN]${RST}"
+# --- Colors (matched to the yathaavat site: cyan signal on ink) ---------------
+# POSIX shells lack `$'\033'`; build ESC once via printf and concatenate.
+setup_colors() {
+    if [ -n "${NO_COLOR:-}" ] || [ ! -t 1 ]; then
+        BOLD="" RESET="" ACCENT="" SOFT="" GREEN="" RED="" YELLOW="" TEXT="" DIM=""
+        G1="" G2="" G3="" G4="" G5="" G6=""
     else
-        _box_line "${BOLD}yathaavat${RST}  ${DIM}(Sanskrit: as it is, truly)${RST}"
+        ESC=$(printf '\033')
+        BOLD="${ESC}[1m"
+        RESET="${ESC}[0m"
+        ACCENT="${ESC}[38;2;74;168;255m"    # #4aa8ff  signal blue
+        SOFT="${ESC}[38;2;139;213;255m"     # #8bd5ff  soft cyan
+        GREEN="${ESC}[38;2;74;222;128m"     # #4ade80  ok
+        RED="${ESC}[38;2;255;107;107m"      # #ff6b6b  trap
+        YELLOW="${ESC}[38;2;242;201;76m"    # #f2c94c  value
+        TEXT="${ESC}[38;2;233;238;252m"     # #e9eefc  ink
+        DIM="${ESC}[38;2;110;124;154m"      # #6e7c8a  faint
+        # Vertical gradient for the wordmark (palest top -> blue bottom).
+        G1="${ESC}[38;2;207;234;255m"
+        G2="${ESC}[38;2;169;220;255m"
+        G3="${ESC}[38;2;139;213;255m"
+        G4="${ESC}[38;2;95;188;255m"
+        G5="${ESC}[38;2;58;166;255m"
+        G6="${ESC}[38;2;43;134;221m"
     fi
-    _box_line ""
-    _box_line "Terminal-first visual debugger for Python 3.14+"
-    _box_line "${DIM}Textual UI  ·  DAP/debugpy  ·  keyboard-first${RST}"
-    _box_line ""
-    _box_rule "+" "+"
-    printf "\n"
 }
 
-# ── Prerequisite checks ────────────────────────────────────────
-check_prereqs() {
-    local ok="true"
-
-    _step "Checking prerequisites..."
-    printf "\n"
-
-    # uv
-    if command -v uv >/dev/null 2>&1; then
-        local uv_ver
-        uv_ver="$(uv --version 2>&1 | head -1)"
-        _done "uv: ${DIM}${uv_ver}${RST}"
-    else
-        _fail "uv: not found"
-        _info "  Install: ${BOLD}curl -LsSf https://astral.sh/uv/install.sh | sh${RST}"
-        ok="false"
+# --- Banner -------------------------------------------------------------------
+# The "yathaavat" wordmark (figlet 'slant'), printed with a top-to-bottom
+# cyan gradient. Single-quoted lines keep the backticks/backslashes literal.
+banner() {
+    # True terminal width via ioctl (stty), ignoring a stale $COLUMNS that
+    # ncurses `tput` may honor. Reads /dev/tty so it works under `curl | sh`
+    # where stdin is the pipe. Falls back to tput, then 80.
+    cols=$(stty size </dev/tty 2>/dev/null | awk '{print $2}')
+    case "${cols}" in ''|*[!0-9]*) cols=$(tput cols 2>/dev/null || echo 80) ;; esac
+    case "${cols}" in ''|*[!0-9]*) cols=80 ;; esac
+    if [ "${cols}" -lt 60 ]; then
+        printf '\n  %s%syathaavat%s %s· visual debugger for Python %s%s\n\n' \
+            "${BOLD}" "${SOFT}" "${RESET}" "${DIM}" "${PYTHON_VERSION}+" "${RESET}"
+        return
     fi
+    printf '\n'
+    printf '  %s                __  __                            __%s\n'        "${G1}" "${RESET}"
+    printf '  %s   __  ______ _/ /_/ /_  ____ _____ __   ______ _/ /_%s\n'       "${G2}" "${RESET}"
+    # shellcheck disable=SC2016  # the figlet wordmark contains literal backticks, not expansions
+    printf '  %s  / / / / __ `/ __/ __ \/ __ `/ __ `/ | / / __ `/ __/%s\n'       "${G3}" "${RESET}"
+    printf '  %s / /_/ / /_/ / /_/ / / / /_/ / /_/ /| |/ / /_/ / /_%s\n'         "${G4}" "${RESET}"
+    printf '  %s \__, /\__,_/\__/_/ /_/\__,_/\__,_/ |___/\__,_/\__/%s\n'         "${G5}" "${RESET}"
+    printf '  %s/____/%s\n'                                                       "${G6}" "${RESET}"
+    printf '\n  %ssee your program as it really runs%s  %s· Python %s+ · MIT%s\n\n' \
+        "${SOFT}" "${RESET}" "${DIM}" "${PYTHON_VERSION}" "${RESET}"
+}
 
-    # Python 3.14
-    local py_found="false"
-    for py_cmd in python3.14 python3; do
-        if command -v "$py_cmd" >/dev/null 2>&1; then
-            local py_ver
-            py_ver="$("$py_cmd" --version 2>&1 | head -1)"
-            if printf '%s' "$py_ver" | grep -q "3\.14"; then
-                _done "python: ${DIM}${py_ver}${RST}"
-                py_found="true"
-                break
-            fi
-        fi
+# --- Logging ------------------------------------------------------------------
+info()       { printf '  %s→%s %s%s%s\n' "${ACCENT}" "${RESET}" "${TEXT}" "$1" "${RESET}"; }
+success()    { printf '  %s✓%s %s%s%s\n' "${GREEN}" "${RESET}" "${TEXT}" "$1" "${RESET}"; }
+warn()       { printf '  %s!%s %s%s%s\n' "${YELLOW}" "${RESET}" "${TEXT}" "$1" "${RESET}"; }
+error_exit() { printf '  %s✗%s %s%s%s\n' "${RED}" "${RESET}" "${TEXT}" "$1" "${RESET}" >&2; exit 1; }
+step() {
+    printf '\n%s%s[%s/%s]%s %s%s%s%s\n' \
+        "${BOLD}" "${ACCENT}" "$1" "$2" "${RESET}" "${BOLD}" "${TEXT}" "$3" "${RESET}"
+}
+head() {
+    printf '\n%s▸%s %s%s%s%s\n' "${ACCENT}" "${RESET}" "${BOLD}" "${TEXT}" "$1" "${RESET}"
+}
+
+# --- Argument parsing ---------------------------------------------------------
+usage() {
+    printf '%s%syathaavat installer%s\n\n' "${BOLD}" "${TEXT}" "${RESET}"
+    printf '%sUsage:%s\n' "${DIM}" "${RESET}"
+    printf '  curl -fsSL https://yathaavat.pages.dev/install | sh\n'
+    printf '  curl ... | sh -s -- [OPTIONS]\n\n'
+    printf '%sOptions:%s\n' "${DIM}" "${RESET}"
+    printf '  %s--version VERSION%s  Install a specific tag (e.g. v0.2.0)\n' "${TEXT}" "${RESET}"
+    printf '  %s--check%s            Check prerequisites and exit\n' "${TEXT}" "${RESET}"
+    printf '  %s--dry-run%s          Show what would happen, change nothing\n' "${TEXT}" "${RESET}"
+    printf '  %s--uninstall%s        Remove yathaavat\n' "${TEXT}" "${RESET}"
+    printf '  %s--help%s             Show this help\n' "${TEXT}" "${RESET}"
+    exit 0
+}
+
+parse_args() {
+    VERSION=""
+    CHECK_ONLY=0
+    DRY_RUN=0
+    UNINSTALL=0
+    while [ $# -gt 0 ]; do
+        case "$1" in
+            --version)
+                [ $# -ge 2 ] || error_exit "--version requires a value (e.g. v0.2.0)"
+                VERSION="$2"
+                shift 2
+                ;;
+            --check)     CHECK_ONLY=1; shift ;;
+            --dry-run)   DRY_RUN=1; shift ;;
+            --uninstall) UNINSTALL=1; shift ;;
+            --help|-h)   usage ;;
+            *)           error_exit "Unknown option: $1 (use --help for usage)" ;;
+        esac
     done
-    if [ "$py_found" = "false" ]; then
-        _fail "python 3.14: not found"
-        _info "  Install: ${BOLD}uv python install 3.14${RST}"
-        ok="false"
+}
+
+# --- Prerequisites ------------------------------------------------------------
+# yathaavat needs `uv` (installs the tool + provisions Python 3.14) and `git`
+# (the source is a git+ URL). Python 3.14 itself is fetched by uv if absent.
+check_prereqs() {
+    ok=1
+
+    if command -v uv >/dev/null 2>&1; then
+        success "uv $(uv --version 2>/dev/null | awk '{print $2}')"
+    else
+        warn "uv not found — yathaavat installs as a uv tool"
+        info "Install it: ${BOLD}curl -LsSf https://astral.sh/uv/install.sh | sh${RESET}"
+        ok=0
     fi
 
-    # git (needed for git+ install)
     if command -v git >/dev/null 2>&1; then
-        _done "git: ${DIM}$(git --version 2>&1 | head -1)${RST}"
+        success "git $(git --version 2>/dev/null | awk '{print $3}')"
     else
-        _fail "git: not found"
-        _info "  Install: https://git-scm.com/downloads"
-        ok="false"
+        warn "git not found — needed to fetch the source"
+        info "Install it from https://git-scm.com/downloads"
+        ok=0
     fi
 
-    printf "\n"
-
-    if [ "$ok" = "false" ]; then
-        _fail "Prerequisites not met. Fix the above and retry."
-        return 1
-    fi
-    return 0
-}
-
-# ── Uninstall ──────────────────────────────────────────────────
-do_uninstall() {
-    _step "Removing yathaavat..."
-
-    if uv tool uninstall yathaavat 2>/dev/null; then
-        _done "Uninstalled yathaavat"
+    if command -v "python${PYTHON_VERSION}" >/dev/null 2>&1; then
+        success "Python ${PYTHON_VERSION} present"
     else
-        _info "yathaavat was not installed via uv tool"
+        info "Python ${PYTHON_VERSION} will be provisioned by uv"
     fi
 
-    printf "\n"
-    _done "Done."
+    [ "${ok}" -eq 1 ] || error_exit "Missing prerequisites — install the above and re-run."
 }
 
-# ── Install (dry-run) ──────────────────────────────────────────
-do_install_dry() {
-    local source="git+${REPO_URL}"
-    if [ -n "$VERSION" ]; then
-        source="${source}@${VERSION}"
+# --- Python 3.14 --------------------------------------------------------------
+ensure_python() {
+    if command -v "python${PYTHON_VERSION}" >/dev/null 2>&1 \
+        || uv python find "${PYTHON_VERSION}" >/dev/null 2>&1; then
+        success "Python ${PYTHON_VERSION} ready"
+        return
     fi
-
-    _step "${BYEL}[DRY RUN]${RST} Would install from ${DIM}${source}${RST}"
-    printf "\n"
-
-    # Check for existing installation
-    if uv tool list 2>/dev/null | grep -q "^yathaavat"; then
-        local existing_ver
-        existing_ver="$(uv tool list 2>/dev/null | grep "^yathaavat" | head -1)"
-        _info "Would replace: ${DIM}${existing_ver}${RST}"
+    info "Provisioning Python ${PYTHON_VERSION} via uv…"
+    if uv python install "${PYTHON_VERSION}" >/dev/null 2>&1; then
+        success "Installed Python ${PYTHON_VERSION}"
+    else
+        warn "Could not pre-provision Python ${PYTHON_VERSION}; uv will retry during install"
     fi
-
-    _info "Command: ${BOLD}uv tool install --python python3.14 ${source}${RST}"
-    _info "Target:  ${DIM}~/.local/bin/yathaavat${RST}"
-    printf "\n"
-    _done "${BYEL}[DRY RUN]${RST} No changes made"
 }
 
-# ── Install ────────────────────────────────────────────────────
+# --- Install ------------------------------------------------------------------
+build_source() {
+    SOURCE="git+${REPO_URL}"
+    [ -z "${VERSION}" ] || SOURCE="${SOURCE}@${VERSION}"
+}
+
 do_install() {
-    local source="git+${REPO_URL}"
-    if [ -n "$VERSION" ]; then
-        source="${source}@${VERSION}"
+    build_source
+
+    reinstall=""
+    if uv tool list 2>/dev/null | grep -q "^${BINARY} "; then
+        existing=$(uv tool list 2>/dev/null | grep "^${BINARY} " | head -1)
+        info "Upgrading existing install (${existing})"
+        reinstall="--reinstall"
     fi
 
-    # Check for existing installation
-    local reinstall_flag=""
-    if uv tool list 2>/dev/null | grep -q "^yathaavat"; then
-        local existing_ver
-        existing_ver="$(uv tool list 2>/dev/null | grep "^yathaavat" | head -1)"
-        _info "Upgrading existing: ${DIM}${existing_ver}${RST}"
-        reinstall_flag="--reinstall"
-    fi
-
-    _step "Installing from ${DIM}${source}${RST}..."
-    printf "\n"
-
-    # shellcheck disable=SC2086
-    if uv tool install --python python3.14 $reinstall_flag "$source" 2>&1 | while IFS= read -r line; do
-        printf "  %s|%s  %s%s%s\n" "${DIM}${CYN}" "$RST" "$DIM" "$line" "$RST"
-    done; then
-        printf "\n"
-        _done "Installed successfully"
+    log="${TMPDIR_CREATED}/install.log"
+    info "Source: ${DIM}${SOURCE}${RESET}"
+    # shellcheck disable=SC2086  # reinstall is an intentional word-split flag
+    if uv tool install --python "${PYTHON_VERSION}" ${reinstall} "${SOURCE}" >"${log}" 2>&1; then
+        success "Installed ${BINARY}"
     else
-        printf "\n"
-        _fail "Installation failed"
-        _info "Try manually: ${BOLD}uv tool install --python python3.14 ${source}${RST}"
-        return 1
-    fi
-
-    # Verify
-    if command -v yathaavat >/dev/null 2>&1; then
-        local installed_ver
-        installed_ver="$(yathaavat --version 2>&1 | head -1)"
-        _done "Verified: ${DIM}${installed_ver}${RST}"
-    else
-        _warn "Binary not in PATH"
-        _info "  Run: ${BOLD}export PATH=\"\$HOME/.local/bin:\$PATH\"${RST}"
-        _info "  Then: ${BOLD}yathaavat --version${RST}"
+        printf '\n'
+        sed 's/^/    /' "${log}" >&2
+        printf '\n'
+        error_exit "Installation failed (see output above). Retry: uv tool install --python ${PYTHON_VERSION} ${SOURCE}"
     fi
 }
 
-# ── Post-install ───────────────────────────────────────────────
+verify() {
+    if command -v "${BINARY}" >/dev/null 2>&1; then
+        # First invocation of a freshly-installed uv shim can emit one-time
+        # setup noise; warm it, then read the version cleanly by pattern.
+        "${BINARY}" --version >/dev/null 2>&1 || true
+        ver=$("${BINARY}" --version 2>/dev/null | grep -m1 -iE "${BINARY}|[0-9]+\.[0-9]+" || true)
+        [ -n "${ver}" ] || ver="${BINARY} (installed)"
+        success "Verified: ${DIM}${ver}${RESET}"
+        return
+    fi
+    warn "${BINARY} is installed but not on your PATH yet"
+    info "Add uv's tool dir to PATH, then re-open your shell:"
+    # shellcheck disable=SC2016  # literal display text, not an expansion
+    printf '\n    %sexport PATH="$HOME/.local/bin:$PATH"%s\n' "${DIM}" "${RESET}"
+}
+
+# --- Uninstall / dry-run ------------------------------------------------------
+do_uninstall() {
+    head "Removing ${BINARY}"
+    if uv tool uninstall "${BINARY}" >/dev/null 2>&1; then
+        success "Uninstalled ${BINARY}"
+    else
+        info "${BINARY} was not installed via uv tool"
+    fi
+    printf '\n'
+}
+
+do_dry_run() {
+    build_source
+    head "Dry run — nothing will change"
+    info "Would run: ${BOLD}uv tool install --python ${PYTHON_VERSION} ${SOURCE}${RESET}"
+    info "Target:    ${DIM}\$HOME/.local/bin/${BINARY}${RESET}"
+    if uv tool list 2>/dev/null | grep -q "^${BINARY} "; then
+        info "Would replace the current install (--reinstall)"
+    fi
+    printf '\n'
+    success "Dry run complete — no changes made"
+    printf '\n'
+}
+
+# --- Post-install -------------------------------------------------------------
 post_install() {
-    printf "\n"
-    _box_rule "+" "+"
-    _box_line ""
-    _box_line "${BGRN}OK${RST} ${BOLD}yathaavat is ready!${RST}"
-    _box_line ""
-    _box_line "Quick start:"
-    _box_line "  ${BOLD}yathaavat${RST}              launch the TUI"
-    _box_line "  ${BOLD}yathaavat --version${RST}    show version"
-    _box_line ""
-    _box_line "Inside the TUI:"
-    _box_line "  ${BCYN}Ctrl+R${RST}  launch a Python script"
-    _box_line "  ${BCYN}Ctrl+K${RST}  connect to debugpy server"
-    _box_line "  ${BCYN}Ctrl+A${RST}  attach to running process"
-    _box_line "  ${BCYN}Ctrl+P${RST}  command palette"
-    _box_line "  ${BCYN}Ctrl+Q${RST}  quit"
-    _box_line ""
-    _box_line "${DIM}${REPO_URL}${RST}"
-    _box_line ""
-    _box_rule "+" "+"
-    printf "\n"
+    printf '\n  %s✓%s %s%sInstallation complete%s\n\n' "${GREEN}" "${RESET}" "${BOLD}" "${TEXT}" "${RESET}"
+    info  "Launch it:   ${BOLD}${BINARY}${RESET}"
+    printf '  %s↳%s %sCtrl+R%s launch  %sCtrl+K%s connect  %sCtrl+A%s attach  %sCtrl+P%s palette  %sCtrl+Q%s quit\n' \
+        "${DIM}" "${RESET}" \
+        "${SOFT}" "${RESET}" "${SOFT}" "${RESET}" "${SOFT}" "${RESET}" "${SOFT}" "${RESET}" "${SOFT}" "${RESET}"
+    info  "Docs & demos: ${DIM}${REPO_URL}${RESET}"
+    printf '\n'
 }
 
-# ── Main ───────────────────────────────────────────────────────
-main() {
-    show_banner
+# --- Cleanup ------------------------------------------------------------------
+cleanup() {
+    [ -z "${TMPDIR_CREATED:-}" ] || rm -rf "${TMPDIR_CREATED}"
+}
 
-    if [ "$UNINSTALL" = "true" ]; then
+# --- Main ---------------------------------------------------------------------
+main() {
+    setup_colors
+    parse_args "$@"
+    banner
+
+    if [ "${UNINSTALL}" -eq 1 ]; then
         do_uninstall
         exit 0
     fi
 
-    if ! check_prereqs; then
-        exit 1
-    fi
+    tmpdir=$(mktemp -d -t yathaavat-install.XXXXXX 2>/dev/null || mktemp -d) \
+        || error_exit "Could not create a temporary directory"
+    TMPDIR_CREATED="${tmpdir}"
+    trap cleanup EXIT INT TERM HUP
 
-    if [ "$CHECK_ONLY" = "true" ]; then
-        _done "All prerequisites met!"
+    if [ "${CHECK_ONLY}" -eq 1 ]; then
+        head "Checking prerequisites"
+        check_prereqs
+        printf '\n'
+        success "All prerequisites met"
+        printf '\n'
         exit 0
     fi
 
-    if [ "$DRY_RUN" = "true" ]; then
-        do_install_dry
+    if [ "${DRY_RUN}" -eq 1 ]; then
+        head "Checking prerequisites"
+        check_prereqs
+        do_dry_run
         exit 0
     fi
 
-    do_install || exit 1
+    step 1 4 "Checking prerequisites"
+    check_prereqs
+
+    step 2 4 "Preparing Python ${PYTHON_VERSION}"
+    ensure_python
+
+    step 3 4 "Installing ${BINARY}"
+    do_install
+
+    step 4 4 "Verifying"
+    verify
 
     post_install
 }
 
-if [[ "${BASH_SOURCE[0]:-}" == "${0}" ]] || [[ -z "${BASH_SOURCE[0]:-}" ]]; then
-    main
-fi
+main "$@"
