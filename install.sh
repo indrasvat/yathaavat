@@ -177,9 +177,12 @@ ensure_python() {
 # --- Install ------------------------------------------------------------------
 # Newest published release tag (vX.Y.Z), resolved via git — no GitHub API
 # rate limits, and git is already a prerequisite. Empty if none/offline.
+# Filters to strict vMAJOR.MINOR.PATCH tags so a prerelease (e.g.
+# v0.10.0-rc.1, which -v:refname can sort ahead of v0.10.0) is never chosen.
 resolve_latest_tag() {
     git ls-remote --tags --refs --sort=-v:refname "${REPO_URL}" 'v*' 2>/dev/null \
-        | sed -n '1s#.*refs/tags/##p'
+        | sed -n 's#.*refs/tags/##p' \
+        | grep -m1 -E '^v[0-9]+\.[0-9]+\.[0-9]+$'
 }
 
 build_source() {
