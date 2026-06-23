@@ -34,10 +34,14 @@ Requires `uv` (Python 3.14 is provisioned automatically).
 curl -fsSL https://yathaavat.pages.dev/install | sh
 ```
 
-Or install directly:
+This installs the latest release. Pass `--version vX.Y.Z` for a specific
+tag, or `--main` for the latest commit on `main` (rolling/dev builds).
+
+Or install directly with `uv` — the latest release, a tag, or `main`:
 
 ```bash
-uv tool install --python 3.14 git+https://github.com/indrasvat/yathaavat
+uv tool install --python 3.14 git+https://github.com/indrasvat/yathaavat@v0.7.0   # release
+uv tool install --python 3.14 git+https://github.com/indrasvat/yathaavat          # main (dev)
 ```
 
 ## Quickstart
