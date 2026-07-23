@@ -136,7 +136,7 @@ def test_yathaavat_app_mounts_status_runs_commands_and_toggles_zoom() -> None:
             app.action_open_source_find()
             app._flash_status("working", timeout=0.01)
             assert app._status_flash == "working"
-            await asyncio.sleep(0.02)
+            await pilot.pause(0.05)
             assert app._status_flash is None
 
     asyncio.run(run())

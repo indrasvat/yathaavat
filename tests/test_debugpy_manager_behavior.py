@@ -1130,6 +1130,124 @@ def test_get_variables_page_falls_back_to_full_fetch_when_paging_unsupported() -
     asyncio.run(run())
 
 
+def test_refresh_locals_fetches_initial_page_only_when_supported() -> None:
+    async def run() -> None:
+        store = SessionStore()
+        store.update(
+            state=SessionState.PAUSED,
+            selected_frame_id=22,
+            capabilities=DapCapabilities(supports_variable_paging=True),
+        )
+        manager = _manager(store)
+        dap = _TestDap(
+            {
+                "scopes": [
+                    {
+                        "body": {
+                            "scopes": [
+                                {
+                                    "name": "Locals",
+                                    "variablesReference": 7,
+                                    "namedVariables": 5000,
+                                }
+                            ]
+                        }
+                    }
+                ],
+                "variables": [
+                    {
+                        "body": {
+                            "variables": [
+                                {
+                                    "name": f"item_{idx}",
+                                    "value": str(idx),
+                                    "type": "int",
+                                    "variablesReference": 0,
+                                }
+                                for idx in range(50)
+                            ]
+                        }
+                    }
+                ],
+            }
+        )
+        _set_dap(manager, dap)
+
+        await manager._refresh_locals(22)
+
+        assert dap.requests[-1] == (
+            "variables",
+            {"variablesReference": 7, "start": 0, "count": 50},
+            None,
+        )
+        snap = store.snapshot()
+        assert len(snap.locals) == 50
+        assert snap.scopes[0].page == VariablePage(
+            variables=snap.locals,
+            start=0,
+            count=50,
+            indexed_variables=None,
+            named_variables=5000,
+        )
+        assert snap.scopes[0].page.next_start == 50
+
+    asyncio.run(run())
+
+
+def test_refresh_locals_falls_back_to_full_fetch_when_paging_unsupported() -> None:
+    async def run() -> None:
+        store = SessionStore()
+        store.update(
+            state=SessionState.PAUSED,
+            selected_frame_id=22,
+            capabilities=DapCapabilities(supports_variable_paging=False),
+        )
+        manager = _manager(store)
+        dap = _TestDap(
+            {
+                "scopes": [
+                    {
+                        "body": {
+                            "scopes": [
+                                {
+                                    "name": "Locals",
+                                    "variablesReference": 7,
+                                    "namedVariables": 2,
+                                }
+                            ]
+                        }
+                    }
+                ],
+                "variables": [
+                    {
+                        "body": {
+                            "variables": [
+                                {
+                                    "name": "one",
+                                    "value": "1",
+                                    "variablesReference": 0,
+                                },
+                                {
+                                    "name": "two",
+                                    "value": "2",
+                                    "variablesReference": 0,
+                                },
+                            ]
+                        }
+                    }
+                ],
+            }
+        )
+        _set_dap(manager, dap)
+
+        await manager._refresh_locals(22)
+
+        assert dap.requests[-1] == ("variables", {"variablesReference": 7}, None)
+        assert len(store.snapshot().locals) == 2
+
+    asyncio.run(run())
+
+
 def test_set_variable_uses_dap_and_updates_returned_variable() -> None:
     async def run() -> None:
         store = SessionStore()

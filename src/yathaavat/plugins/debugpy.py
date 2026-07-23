@@ -215,6 +215,8 @@ _ATTR_COMPLETION_RE = re.compile(
     r"(?P<chain>[A-Za-z_][A-Za-z0-9_]*(?:\.[A-Za-z_][A-Za-z0-9_]*)*)\.(?P<prefix>[A-Za-z0-9_]*)$"
 )
 
+_INITIAL_VARIABLE_PAGE_SIZE = 50
+
 
 def _is_identifier(value: str) -> bool:
     return bool(re.fullmatch(r"[A-Za-z_][A-Za-z0-9_]*", value))
@@ -1306,20 +1308,16 @@ class DebugpySessionManager(SessionManager):
                 scopes[0],
             )
 
-        vars_resp = await dap.request(
-            "variables", {"variablesReference": selected_scope.variables_reference}
+        selected_page = await self.get_variables_page(
+            selected_scope.variables_reference,
+            start=0,
+            count=_INITIAL_VARIABLE_PAGE_SIZE,
         )
-        variables = tuple(_parse_variables(_as_list(_body(vars_resp).get("variables"))))
+        variables = selected_page.variables
         if not self._is_current_variables_refresh(frame_id, dap_id):
             return
         if self.store.snapshot().selected_scope_name != previous_name:
             return
-        self._remember_variable_counts(variables)
-        selected_page = VariablePage(
-            variables=variables,
-            indexed_variables=selected_scope.indexed_variables,
-            named_variables=selected_scope.named_variables,
-        )
         scoped = tuple(
             scope
             if scope.name != selected_scope.name
