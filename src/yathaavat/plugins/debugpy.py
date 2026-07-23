@@ -836,6 +836,10 @@ class DebugpySessionManager(SessionManager):
         variables = tuple(_parse_variables(_as_list(body.get("variables"))))
         self._remember_variable_counts(variables)
         indexed, named = self._variable_counts.get(variables_reference, (None, None))
+        if requested_count is not None and len(variables) > requested_count:
+            requested_start = None
+            requested_count = None
+            requested_filter = None
         return VariablePage(
             variables=variables,
             start=requested_start,

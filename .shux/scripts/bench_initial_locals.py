@@ -9,8 +9,9 @@ from yathaavat.plugins.debugpy import DebugpySessionManager
 
 
 class _BenchDap:
-    def __init__(self, *, variable_count: int) -> None:
+    def __init__(self, *, variable_count: int, honor_paging: bool) -> None:
         self.variable_count = variable_count
+        self.honor_paging = honor_paging
         self.variable_requests: list[dict[str, object]] = []
 
     async def request(
@@ -38,7 +39,7 @@ class _BenchDap:
         self.variable_requests.append(dict(arguments))
         start_raw = arguments.get("start")
         count_raw = arguments.get("count")
-        if isinstance(start_raw, int) and isinstance(count_raw, int):
+        if self.honor_paging and isinstance(start_raw, int) and isinstance(count_raw, int):
             start = max(start_raw, 0)
             stop = min(start + max(count_raw, 0), self.variable_count)
         else:
@@ -60,10 +61,10 @@ class _BenchDap:
         }
 
 
-async def _run(*, variable_count: int, iterations: int) -> None:
+async def _run(*, variable_count: int, iterations: int, honor_paging: bool) -> None:
     store = SessionStore()
     manager = DebugpySessionManager(store=store, host=cast(Any, object()))
-    dap = _BenchDap(variable_count=variable_count)
+    dap = _BenchDap(variable_count=variable_count, honor_paging=honor_paging)
     cast(Any, manager)._dap = dap
 
     for frame_id in range(iterations):
@@ -86,8 +87,15 @@ def main() -> int:
     parser = argparse.ArgumentParser()
     parser.add_argument("--variables", type=int, default=10_000)
     parser.add_argument("--iterations", type=int, default=25)
+    parser.add_argument("--ignore-paging", action="store_true")
     args = parser.parse_args()
-    asyncio.run(_run(variable_count=args.variables, iterations=args.iterations))
+    asyncio.run(
+        _run(
+            variable_count=args.variables,
+            iterations=args.iterations,
+            honor_paging=not args.ignore_paging,
+        )
+    )
     return 0
 
 

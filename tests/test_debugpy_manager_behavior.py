@@ -1115,6 +1115,41 @@ def test_get_variables_page_uses_remembered_variable_counts() -> None:
     asyncio.run(run())
 
 
+def test_get_variables_page_normalizes_unpaged_response_that_ignored_count() -> None:
+    async def run() -> None:
+        store = SessionStore()
+        store.update(capabilities=DapCapabilities(supports_variable_paging=True))
+        manager = _manager(store)
+        dap = _TestDap(
+            {
+                "variables": [
+                    {
+                        "body": {
+                            "variables": [
+                                {
+                                    "name": f"item_{idx}",
+                                    "value": str(idx),
+                                    "variablesReference": 0,
+                                }
+                                for idx in range(100)
+                            ]
+                        }
+                    }
+                ]
+            }
+        )
+        _set_dap(manager, dap)
+
+        page = await manager.get_variables_page(7, start=0, count=50)
+
+        assert len(page.variables) == 100
+        assert page.start is None
+        assert page.count is None
+        assert page.next_start is None
+
+    asyncio.run(run())
+
+
 def test_get_variables_page_falls_back_to_full_fetch_when_paging_unsupported() -> None:
     async def run() -> None:
         store = SessionStore()
