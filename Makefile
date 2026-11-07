@@ -70,6 +70,10 @@ shux-smoke: shux-install ## Drive TUI with shux + capture color screenshot
 			> .shux/out/yathaavat-smoke.png; \
 		printf "$(COLOR_GREEN)OK$(COLOR_RESET) Wrote .shux/out/yathaavat-smoke.png\n"
 
+.PHONY: shortcuts-smoke
+shortcuts-smoke: shux-install ## Verify shortcuts overlay, scrolling, focus, and literal ? input
+	@uv run --python $(PYTHON) --script .shux/scripts/shortcuts_smoke.py
+
 .PHONY: inspector2-smoke
 inspector2-smoke: shux-install ## Run Inspector 2.0 shux visual smoke
 	@uv run --python $(PYTHON) --script .shux/scripts/inspector2_smoke.py

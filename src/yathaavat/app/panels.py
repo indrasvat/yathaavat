@@ -188,6 +188,7 @@ class CodeView(TextArea):
         Binding("ctrl+shift+\\", "app.command('session.terminate')", show=False),
         Binding("ctrl+f", "app.command('source.find')", show=False),
         Binding("/", "app.command('source.find')", show=False),
+        Binding("?", "app.command('help.shortcuts')", show=False),
         Binding("ctrl+g", "app.command('source.goto')", show=False),
         Binding("ctrl+l", "app.focus_locals", show=False, priority=True),
         Binding("alt+l", "app.focus_locals", show=False, priority=True),

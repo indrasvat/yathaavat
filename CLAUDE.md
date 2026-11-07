@@ -108,6 +108,7 @@ Tests live in `tests/`. Follow existing conventions:
 | `Ctrl+K` | Connect | Global |
 | `Ctrl+A` | Attach | Global |
 | `Ctrl+P` | Command palette | Global |
+| `?` | Keyboard shortcuts (`Esc` / `?` closes) | Outside text inputs |
 | `Ctrl+Q` | Quit | Global |
 | `Ctrl+X` | Disconnect/Terminate | Global |
 | `c` | Continue | Paused |
