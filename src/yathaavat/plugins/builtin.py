@@ -13,6 +13,7 @@ from yathaavat.app.panels import (
     StackPanel,
     TranscriptPanel,
 )
+from yathaavat.app.shortcuts import KeyboardShortcuts
 from yathaavat.app.source_nav import GotoDialog
 from yathaavat.app.tasks import TasksPanel
 from yathaavat.app.threads import ThreadsPanel
@@ -56,6 +57,18 @@ class BuiltinPlugin(Plugin):
     @override
     def register(self, ctx: AppContext) -> None:
         host = ctx.host
+
+        ctx.commands.register(
+            Command(
+                CommandSpec(
+                    id="help.shortcuts",
+                    title="Help: keyboard shortcuts",
+                    summary="Show default keyboard shortcuts grouped by area.",
+                    default_keys=("?",),
+                ),
+                handler=lambda: host.push_screen(KeyboardShortcuts(ctx=ctx)),
+            )
+        )
 
         async def _quit() -> None:
             session = _session(ctx)

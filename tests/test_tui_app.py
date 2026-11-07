@@ -142,6 +142,25 @@ def test_yathaavat_app_mounts_status_runs_commands_and_toggles_zoom() -> None:
     asyncio.run(run())
 
 
+def test_yathaavat_app_normalizes_registered_punctuation_bindings() -> None:
+    async def run() -> None:
+        ctx = make_context()
+        ctx.commands.register(
+            Command(
+                CommandSpec("help.shortcuts", "Help", "", ("?",)),
+                handler=lambda: None,
+            )
+        )
+        app = YathaavatApp(ctx=ctx, plugin_errors=[])
+        async with app.run_test():
+            bindings = app._bindings.key_to_bindings["question_mark"]
+            assert [(binding.action, binding.priority) for binding in bindings] == [
+                ("command('help.shortcuts')", False)
+            ]
+
+    asyncio.run(run())
+
+
 def test_yathaavat_app_notifies_when_target_widgets_are_missing(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:

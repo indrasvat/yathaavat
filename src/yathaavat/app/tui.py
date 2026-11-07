@@ -52,6 +52,7 @@ class YathaavatApp(App[None]):
     $cursor_line_bg: #0f2033;
 
     Screen { background: $bg; color: $fg; }
+    KeyboardShortcuts { background: #000000 45%; }
 
     #status {
       dock: top;
@@ -399,11 +400,17 @@ class YathaavatApp(App[None]):
 
     def on_mount(self) -> None:
         for command in self._ctx.commands.all():
-            for key in command.spec.default_keys:
+            # App.bind doesn't normalize printable punctuation (e.g. '?' becomes
+            # 'question_mark'); use the same normalization as static BINDINGS.
+            bindings = Binding.make_bindings(
+                (key, f"command({command.spec.id!r})", command.spec.title)
+                for key in command.spec.default_keys
+            )
+            for binding in bindings:
                 self.bind(
-                    key,
-                    f"command({command.spec.id!r})",
-                    description=command.spec.title,
+                    binding.key,
+                    binding.action,
+                    description=binding.description,
                 )
 
         self._bind_status()
@@ -644,6 +651,7 @@ def _help_text(ctx: AppContext) -> str:
 
     parts = [
         "Ctrl+P palette",
+        label("help.shortcuts", "shortcuts"),
         label("session.attach", "attach"),
         label("session.connect", "connect"),
         label("session.launch", "launch"),

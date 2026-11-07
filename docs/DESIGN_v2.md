@@ -414,7 +414,11 @@ Backend contract:
 - safe attach policy settings
 
 **Help**
-- contextual help (`?`), plus “Debugging 101” for first-run
+- Implemented: `?` opens a scrollable Keyboard shortcuts overlay generated from
+  the command registry's default keys, grouped by area. `Esc` or `?` closes and
+  restores focus; text inputs retain literal `?` entry. Also available through
+  the palette as “Help: keyboard shortcuts”. Fits 80×24 terminals.
+- Pending: contextual guidance and “Debugging 101” for first-run
 
 ---
 

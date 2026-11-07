@@ -73,6 +73,7 @@ Inside the TUI, press `Ctrl+R` and type `examples/demo_target.py` to launch a de
 | `Ctrl+K` | Connect to a debugpy server (host:port) |
 | `Ctrl+A` | Attach to a running process by PID |
 | `Ctrl+P` | Command palette (fuzzy search) |
+| `?` | Keyboard shortcuts (outside text inputs); `Esc` or `?` closes |
 | `c` | Continue |
 | `n` | Step over |
 | `s` | Step in |
@@ -97,6 +98,16 @@ Inside the TUI, press `Ctrl+R` and type `examples/demo_target.py` to launch a de
 | `Tab` | Cycle focus between panes |
 | `Esc` | Close dialog / cancel |
 | `Ctrl+Q` | Quit |
+
+The shortcuts overlay groups commands with default keys by area and scrolls with
+the arrow keys or `PgUp` / `PgDn`, including on 80×24 terminals. It is also
+available as **Help: keyboard shortcuts** in the command palette. Text inputs
+(find, palette, watch expressions, and console) keep accepting a literal `?`.
+
+Run `make shortcuts-smoke` to verify the overlay in the real TUI with shux.
+To also record a 30-second walkthrough, run
+`uv run --script .shux/scripts/shortcuts_smoke.py --record`. Screenshots and video
+are written under `.shux/out/shortcuts/` (gitignored).
 
 ## Demo Flows
 
